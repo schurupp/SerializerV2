@@ -4,9 +4,14 @@ import socket
 import threading
 import time
 import collections
+import random
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from serializer_core import *
+from enums import WorkingMode
+from Messages import TestMsg1, TestMsg2 # Explicitly import or *
+from Messages import *
 
 # Reuse TestMessage from integration test or define simple one
 @register
@@ -53,9 +58,16 @@ def run_server(stop_event, ready_event):
             while dq:
                 msg = dq.popleft()
                 received_count += 1
-                if received_count % 100 == 0:
-                    print(f"[Server] Received {received_count} messages...")
-                    
+                
+                # Debug Logging for first 5 and every 100th
+                if received_count <= 5 or received_count % 100 == 0:
+                    print(f"[Server] Msg {received_count}: {msg.__class__.__name__}")
+                    # Print all public fields
+                    for key, value in vars(msg).items():
+                        if not key.startswith('_'):
+                            print(f"    {key}: {value}")
+                    print("-" * 20)
+
             if received_count >= MSG_COUNT:
                 print("[Server] Target count reached.")
                 break
@@ -86,7 +98,11 @@ def run_client(ready_event):
     # Pre-pack
     data_buffer = bytearray()
     for i in range(MSG_COUNT):
-        m = SimpleMsg(val_a=i, val_b=i*2)
+        m = TestMsg3()
+        m.gps_pos = random.uniform(-90, 90)
+        # Set dynamic timestamp to verify it works
+        if hasattr(m, 'timestamp'):
+            m.timestamp = int(time.time()) + i
         data_buffer.extend(m.serialize())
         
     sock.sendall(data_buffer)
