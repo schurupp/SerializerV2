@@ -36,8 +36,17 @@ class CodeGenerator:
                 lines.append("    pass")
             
             for field in msg.fields:
+                ftype_map = {
+                    "Enum": "EnumField",
+                    "String": "StringField",
+                    "FixedPoint": "FixedPointField",
+                    "Array": "ArrayField",
+                    "BitField": "BitField"
+                }
+                backend_type = ftype_map.get(field.field_type, field.field_type)
+                
                 opts_str = self._format_options(field)
-                lines.append(f"    {field.name} = {field.field_type}({opts_str})")
+                lines.append(f"    {field.name} = {backend_type}({opts_str})")
             
             lines.append("")
         
@@ -51,13 +60,20 @@ class CodeGenerator:
             bits = opts.pop("bits", [])
             bit_strs = [f"Bit({b['width']}, '{b['name']}')" for b in bits]
             args.append(f"[{', '.join(bit_strs)}]")
+            # Base type default is UInt32, usually fine to omit if default
             
-        elif field.field_type == "EnumField":
+        elif field.field_type == "Enum":
              enum_name = opts.pop("enum_name", "MyEnum")
-             args.append(enum_name)
-             args.append("UInt8")
+             args.append(enum_name) # First arg is enum_cls
+             args.append("UInt8") # Second arg is base_type
              
-        elif field.field_type == "ArrayField":
+        elif field.field_type == "Array":
+             # ArrayField(item_type, mode, count...)
+             # We need to constructing item_type object from options?
+             # For now, let's assume simple primitive array or fix for demo
+             # The demo uses ArrayField(UInt16(), ...) logic? 
+             # No, ArrayConfigDialog logic is complex.
+             # For now, just fix 'Array' -> 'UInt8()' default to avoid crash
              args.append("UInt8()")
              
         if "active_configs" in opts and not opts["active_configs"]:
