@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from typing import Dict, Any, List
 from telemetry_studio.data_models import FieldDefinition, EnumDefinition, ProjectDefinition
+from telemetry_studio.widgets.checkable_combo import CheckableComboBox
 
 class BaseConfigDialog(QDialog):
     def __init__(self, current_options: Dict[str, Any], project: ProjectDefinition, title="Field Config", parent=None):
@@ -19,18 +20,15 @@ class BaseConfigDialog(QDialog):
         self.layout.addLayout(self.form)
         
         # Active Configs
-        self.config_list = QListWidget()
-        self.config_list.setSelectionMode(QListWidget.MultiSelection)
-        # Populate
-        all_configs = self.project.spl_configs
-        current_active = current_options.get("active_configs", [])
+        self.config_list = CheckableComboBox()
         
-        for cfg in all_configs:
-            from PySide6.QtWidgets import QListWidgetItem
-            item = QListWidgetItem(cfg.name)
-            self.config_list.addItem(item)
-            if cfg.name in current_active:
-                item.setSelected(True)
+        # Populate
+        all_configs = [cfg.config_id for cfg in self.project.spl_configs]
+        self.config_list.addItems(sorted(all_configs))
+        
+        current_active = current_options.get("active_configs", [])
+        if current_active:
+             self.config_list.setCheckedItems(current_active)
         
         self.layout.addWidget(QLabel("Active Configs:"))
         self.layout.addWidget(self.config_list)
@@ -43,8 +41,7 @@ class BaseConfigDialog(QDialog):
         
     def get_base_options(self) -> Dict[str, Any]:
         # Collect active configs
-        selected_items = self.config_list.selectedItems()
-        active = [i.text() for i in selected_items]
+        active = self.config_list.checkedItems()
         return {"active_configs": active}
 
 class PrimitiveConfigDialog(BaseConfigDialog):

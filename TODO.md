@@ -20,7 +20,7 @@
 
 
 
-10- String-based message desteğinin nasıl eklenebileceği düsünülecek. Belki telemetry studio açılırken ve sonradan değiştirilebilecek bir mod seçimi ekranı eklenebilir Hex<->String (8.)
+10- String-based message desteğinin nasıl eklenebileceği düsünülecek. Belki telemetry studio açılırken ve sonradan değiştirilebilecek bir mod seçimi ekranı eklenebilir Hex<->String (8.) (+ and ready to be tested comprehensively)
 
 
 
@@ -28,13 +28,25 @@
 
 5- Enum Manager'de enumerationlara SPL config ayarlanabilmesi(9.)
 
+7- Mesajlar için seçilebilen configler tickbox ile seçilebilir olsun(13.)
+
+
+
+
+
+1- Yeni Type'lar tanımlama, UI kullanımı, Middleware'de kullanımları vb. teknik ve teknik olmayan her türlü şey için dokümantasyon hazırlama (12.)
+
+
+
+
+
 8- Halihazırda bulunan bir yapıda olan örnek bir xml ile load/save mappininin yapılması(10.)
 
 9- Düz FieldType için bir repeat ve repeat ref eklenmesi düşünülebilir(11.)
 
-1- Yeni Type'lar tanımlama, UI kullanımı, Middleware'de kullanımları vb. teknik ve teknik olmayan her türlü şey için dokümantasyon hazırlama (12.)
 
-7- Mesajlar için seçilebilen configler tickbox ile seçilebilir olsun(13.)
+
+
 
 
 

@@ -4,9 +4,14 @@ class CodeGenerator:
     def __init__(self, project: ProjectDefinition):
         self.project = project
 
-    def generate_enums(self) -> str:
+    def generate_enums(self, target_config: str = None) -> str:
         lines = ["from enum import IntEnum", "", ""]
         for enum_def in self.project.enums:
+            # SPL Filtering
+            if target_config and enum_def.active_configs:
+                if target_config not in enum_def.active_configs:
+                    continue
+                    
             lines.append(f"class {enum_def.name}(IntEnum):")
             if not enum_def.items:
                 lines.append("    pass")

@@ -17,6 +17,7 @@ class EnumItem:
 class EnumDefinition:
     name: str = "NewEnum"
     items: List[EnumItem] = field(default_factory=list)
+    active_configs: List[str] = field(default_factory=list)
 
 @dataclass
 class SPLDefinition:

@@ -4,6 +4,8 @@ from PySide6.QtWidgets import (
 )
 from telemetry_studio.qt_models import EnumListModel, EnumItemsModel
 from telemetry_studio.data_models import ProjectDefinition
+from telemetry_studio.widgets.checkable_combo import CheckableComboBox
+from PySide6.QtWidgets import QLabel
 
 class EnumManagerView(QWidget):
     def __init__(self, project_def: ProjectDefinition, parent=None):
@@ -33,9 +35,18 @@ class EnumManagerView(QWidget):
         left_layout.addWidget(self.enum_list)
         left_layout.addLayout(l_btn_layout)
         
-        # Right: Items Editor
+        # Right: Items Editor & Properties
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
+        
+        # Properties
+        props_layout = QHBoxLayout()
+        props_layout.addWidget(QLabel("Active Configs:"))
+        self.config_combo = CheckableComboBox()
+        self.config_combo.model().dataChanged.connect(self.on_config_changed)
+        props_layout.addWidget(self.config_combo)
+        right_layout.addLayout(props_layout)
+        
         self.items_table = QTableView()
         self.items_model = EnumItemsModel()
         self.items_table.setModel(self.items_model)
@@ -60,6 +71,24 @@ class EnumManagerView(QWidget):
         row = index.row()
         enum_def = self.project.enums[row]
         self.items_model.set_enum(enum_def)
+        
+        # Update Configs
+        self.config_combo.blockSignals(True)
+        self.config_combo.clear()
+        
+        all_configs = [cfg.config_id for cfg in self.project.spl_configs]
+        self.config_combo.addItems(sorted(all_configs))
+        
+        if enum_def.active_configs:
+            self.config_combo.setCheckedItems(enum_def.active_configs)
+            
+        self.config_combo.blockSignals(False)
+
+    def on_config_changed(self):
+        enum_def = self.items_model.enum_def
+        if not enum_def: return
+        
+        enum_def.active_configs = self.config_combo.checkedItems()
         
     def delete_enum(self):
         idx = self.enum_list.currentIndex()

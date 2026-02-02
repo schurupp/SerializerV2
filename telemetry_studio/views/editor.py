@@ -6,6 +6,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt, QModelIndex
 from telemetry_studio.qt_models import FieldTableModel
 from telemetry_studio.data_models import MessageDefinition, ProjectDefinition
+from telemetry_studio.widgets.checkable_combo import CheckableComboBox
 
 class TypeDelegate(QStyledItemDelegate):
     TYPES = [
@@ -62,9 +63,9 @@ class MessageEditorView(QWidget):
         # Message Configs
         config_layout = QVBoxLayout()
         config_layout.addWidget(QLabel("Active Message Configs:"))
-        self.msg_configs = QListWidget()
-        self.msg_configs.setSelectionMode(QListWidget.MultiSelection)
-        self.msg_configs.itemSelectionChanged.connect(self.on_config_changed)
+        self.msg_configs = CheckableComboBox()
+        # Populate later based on project SPL configs
+        self.msg_configs.model().dataChanged.connect(self.on_config_changed)
         config_layout.addWidget(self.msg_configs)
         
         self.header_layout.addLayout(disc_layout)
@@ -109,14 +110,20 @@ class MessageEditorView(QWidget):
         if not self.current_msg: return
         
         # Active Configs
+        self.msg_configs.blockSignals(True)
         self.msg_configs.clear()
-        for spl in self.project_context.spl_configs:
-
-            from PySide6.QtWidgets import QListWidgetItem
-            item = QListWidgetItem(spl.name)
-            self.msg_configs.addItem(item)
-            if spl.name in self.current_msg.active_configs:
-                item.setSelected(True)
+        
+        all_tags = []
+        if self.project_context:
+            for spl in self.project_context.spl_configs:
+                all_tags.append(spl.config_id)
+        
+        self.msg_configs.addItems(sorted(all_tags))
+        
+        if self.current_msg.active_configs:
+            self.msg_configs.setCheckedItems(self.current_msg.active_configs)
+            
+        self.msg_configs.blockSignals(False)
                 
         # Discriminators
         self.disc_table.setRowCount(0)
@@ -131,8 +138,7 @@ class MessageEditorView(QWidget):
 
     def on_config_changed(self):
         if not self.current_msg: return
-        sel = self.msg_configs.selectedItems()
-        self.current_msg.active_configs = [i.text() for i in sel]
+        self.current_msg.active_configs = self.msg_configs.checkedItems()
 
     def add_field(self):
         if self.model: self.model.add_field()
