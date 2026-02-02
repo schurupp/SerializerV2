@@ -27,9 +27,11 @@ class MessageDefinition:
     name: str = "NewMessage"
     fields: List[FieldDefinition] = field(default_factory=list)
     active_configs: List[str] = field(default_factory=list) # List of SPL names this message belongs to (empty=ALL)
+    protocol_mode: str = "binary" # "binary" or "string"
 
 @dataclass
 class ProjectDefinition:
     messages: List[MessageDefinition] = field(default_factory=list)
     enums: List[EnumDefinition] = field(default_factory=list)
     spl_configs: List[SPLDefinition] = field(default_factory=list) # Global list of SPL tags
+    protocol_mode: str = "binary" # "binary" or "string"

@@ -118,7 +118,16 @@ class MessageListModel(QAbstractListModel):
 
     def add_message(self):
         self.beginInsertRows(QModelIndex(), len(self.project.messages), len(self.project.messages))
-        self.project.messages.append(MessageDefinition("NewMessage"))
+        msg = MessageDefinition("NewMessage")
+        
+        # Check Global Protocol Mode
+        if getattr(self.project, 'protocol_mode', 'binary') == 'string':
+            msg.protocol_mode = 'string'
+            # Auto-add mandatory fields
+            msg.fields.append(FieldDefinition(name="cmd_type", field_type="String", options={'default': "CMD"}))
+            msg.fields.append(FieldDefinition(name="cmd_str", field_type="String", options={'default': "SUB"}))
+            
+        self.project.messages.append(msg)
         self.endInsertRows()
 
     def remove_message(self, row: int):
