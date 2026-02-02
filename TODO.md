@@ -26,23 +26,27 @@
 
 
 
-5- Enum Manager'de enumerationlara SPL config ayarlanabilmesi(9.)
+5- Enum Manager'de enumerationlara SPL config ayarlanabilmesi(9.) (Yapıldı gibi görünüyor ama yapılmadı tam sanki kontrol edilmeli)
 
-7- Mesajlar için seçilebilen configler tickbox ile seçilebilir olsun(13.)
-
-
-
-
-
-1- Yeni Type'lar tanımlama, UI kullanımı, Middleware'de kullanımları vb. teknik ve teknik olmayan her türlü şey için dokümantasyon hazırlama (12.)
+7- Mesajlar için seçilebilen configler tickbox ile seçilebilir olsun(13.) (Yapıldı gibi daha detaylı kontrol gerekli)
 
 
 
 
 
-8- Halihazırda bulunan bir yapıda olan örnek bir xml ile load/save mappininin yapılması(10.)
+1- Yeni Type'lar tanımlama, UI kullanımı, Middleware'de kullanımları vb. teknik ve teknik olmayan her türlü şey için dokümantasyon hazırlama (12.) (Yapılmadı)
 
-9- Düz FieldType için bir repeat ve repeat ref eklenmesi düşünülebilir(11.)
+
+
+
+
+8- Halihazırda bulunan bir yapıda olan örnek bir xml ile load/save mappininin yapılması(10.) (Yapılmadı)
+
+9- Düz FieldType için bir repeat ve repeat ref eklenmesi düşünülebilir(11.) (Yapılmadı)
+
+14- UI kullanılmadan yapılacak bütün test featureler için kapsamlı bir test yapılması. (Yapılmadı)
+
+15- Manuel kapsamlı testler. (Yapılmadı)
 
 
 

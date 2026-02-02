@@ -76,7 +76,7 @@ class EnumManagerView(QWidget):
         self.config_combo.blockSignals(True)
         self.config_combo.clear()
         
-        all_configs = [cfg.config_id for cfg in self.project.spl_configs]
+        all_configs = [cfg.name for cfg in self.project.spl_configs]
         self.config_combo.addItems(sorted(all_configs))
         
         if enum_def.active_configs:

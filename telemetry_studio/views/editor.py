@@ -116,7 +116,7 @@ class MessageEditorView(QWidget):
         all_tags = []
         if self.project_context:
             for spl in self.project_context.spl_configs:
-                all_tags.append(spl.config_id)
+                all_tags.append(spl.name)
         
         self.msg_configs.addItems(sorted(all_tags))
         

@@ -23,7 +23,7 @@ class BaseConfigDialog(QDialog):
         self.config_list = CheckableComboBox()
         
         # Populate
-        all_configs = [cfg.config_id for cfg in self.project.spl_configs]
+        all_configs = [cfg.name for cfg in self.project.spl_configs]
         self.config_list.addItems(sorted(all_configs))
         
         current_active = current_options.get("active_configs", [])
