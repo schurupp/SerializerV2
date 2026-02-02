@@ -20,24 +20,123 @@ class Message:
                  setattr(self, name, None)
 
     def serialize(self) -> bytes:
+        from . import checksums
+        import time
         chunks = []
+        patches = [] # (checksum_field_name, field_obj, offset_in_struct)
+        
+        # 1. Pass 1: Pack data and identify checksums
+        current_offset = 0
+        field_info = {} # name -> {'start': int, 'size': int}
+
         for step in self._packing_plan:
             action, payload = step
             if action == 'struct':
                 fmt, field_names, struct_obj = payload
                 values = []
+                
+                chunk_start_offset = current_offset
+                local_offset = 0
+                
                 for name in field_names:
+                    field = self.fields[name]
                     val = getattr(self, name)
-                    if hasattr(val, 'value'): # Enum
-                        val = val.value
+                    
+                    # Store logic size
+                    f_size = field._struct.size
+                    field_info[name] = {'start': chunk_start_offset + local_offset, 'size': f_size}
+                    
+                    # Checksum Placeholders
+                    if field.is_checksum:
+                        patches.append({
+                            'name': name,
+                            'field': field,
+                            'offset': chunk_start_offset + local_offset
+                        })
+                        val = 0 # Placeholder
+                    
+                    # Timestamp Injection
+                    elif field.is_timestamp:
+                        t = time.time()
+                        # Check resolution property.
+                        # Since PrimitiveField uses kwargs, attribute might not exist on Field base.
+                        # But we modified Field to accept kwargs.
+                        # So it should be there. default to 's'
+                        res = getattr(field, 'resolution', 's')
+                        if res == 'ms':
+                            t *= 1000
+                        val = int(t)
+                    
+                    # Normal packing logic
+                    else:
+                        if hasattr(val, 'value'): # Enum
+                            val = val.value
+                        if val is None:
+                            val = 0
+                    
                     values.append(val)
+                    
+                    local_offset += f_size
+                    
                 chunks.append(struct_obj.pack(*values))
+                current_offset += struct_obj.size
+                
             elif action == 'complex':
                 field_name = payload
                 field = self.fields[field_name]
+                
                 val = getattr(self, field_name)
-                chunks.append(field.to_bytes(val))
-        return b''.join(chunks)
+                # Checksum not supported inside complex field (yet)
+                
+                chunk = field.to_bytes(val)
+                chunks.append(chunk)
+                
+                chunk_len = len(chunk)
+                field_info[field_name] = {'start': current_offset, 'size': chunk_len}
+                current_offset += chunk_len
+
+        # 2. Join buffer
+        buffer = bytearray(b''.join(chunks))
+
+        # 3. Pass 2: Apply Patches
+        field_offsets = {name: info['start'] for name, info in field_info.items()}
+        
+        for patch in patches:
+            name = patch['name']
+            field = patch['field']
+            offset = patch['offset'] # Offset of the checksum field itself
+            
+            # Get config from field (algorithm, start_field, end_field)
+            algo_name = getattr(field, 'algorithm', 'CRC16')
+            start_field = getattr(field, 'start_field', None)
+            end_field = getattr(field, 'end_field', None)
+            
+            if start_field and end_field:
+                start_info = field_info.get(start_field)
+                end_info = field_info.get(end_field)
+                
+                if start_info and end_info:
+                     start_byte = start_info['start']
+                     # Provide option: End Exclusive or Inclusive?
+                     # "End Field" usually implies "Up to end of End Field".
+                     end_byte = end_info['start'] + end_info['size']
+                     
+                     if start_byte < end_byte and end_byte <= len(buffer):
+                         data_slice = buffer[start_byte : end_byte]
+                         
+                         # Calculate Checksum
+                         result = checksums.calculate(algo_name, data_slice)
+                         
+                         # Pack result into buffer at 'offset'
+                         # Checksum field has 'struct_format' (e.g. '<H'). Use it.
+                         # But Field object doesn't have pack_into helper easily exposed?
+                         # PrimitiveField has _struct.
+                         if hasattr(field, '_struct'):
+                             field._struct.pack_into(buffer, offset, result)
+                         else:
+                             print(f"Warning: Checksum field {name} is not a PrimitiveField. Cannot pack result.")
+            
+        return bytes(buffer)
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Tuple['Message', int]:
@@ -133,12 +232,20 @@ def register(cls_or_none=None, *, system_config_id: str = None):
         plan = []
         current_fmt = []
         current_names = []
+        current_endian = None # None, '<', '>', etc.
         
         def flush():
             if current_fmt:
-                fmt_str = '<' + ''.join(current_fmt)
-                s = struct.Struct(fmt_str)
-                plan.append(('struct', (fmt_str, list(current_names), s)))
+                # Prepend endianness to the whole chunk
+                fmt_str = (current_endian if current_endian else '') + ''.join(current_fmt)
+                try:
+                    s = struct.Struct(fmt_str)
+                    plan.append(('struct', (fmt_str, list(current_names), s)))
+                except struct.error as e:
+                    # Fallback logging
+                    print(f"Error compiling struct: {fmt_str}")
+                    raise e
+                    
                 current_fmt.clear()
                 current_names.clear()
 
@@ -147,15 +254,43 @@ def register(cls_or_none=None, *, system_config_id: str = None):
             is_enum = (field.__class__.__name__ == 'EnumField')
             
             if is_primitive or is_enum:
-                current_fmt.append(field.struct_format)
+                # Extract endianness from field.struct_format
+                fmt = field.struct_format
+                if not fmt: 
+                    # Should not happen for primitives
+                    continue
+                    
+                # Check first char
+                first = fmt[0]
+                if first in '@=<>!':
+                    f_endian = first
+                    f_char = fmt[1:]
+                else:
+                    f_endian = '' # Default native? or None? 
+                    # If field has no endian char, it uses native.
+                    # We treat '' as a distinct endianness 'native'.
+                    f_char = fmt
+                
+                # If endianness changed, flush
+                if current_endian is not None and f_endian != current_endian:
+                    flush()
+                    current_endian = f_endian
+                elif current_endian is None:
+                    current_endian = f_endian
+                
+                current_fmt.append(f_char)
                 current_names.append(name)
             else:
                 flush()
-                # Pass explicit type if needed or just name
+                # Complex field (String, Array, etc) - Reset endian tracking
+                current_endian = None 
                 plan.append(('complex', name))
         
         flush()
         cls._packing_plan = plan
+        
+        Registry.register(cls, config_id=system_config_id)
+        return cls
         
         Registry.register(cls, config_id=system_config_id)
         return cls

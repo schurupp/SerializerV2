@@ -14,8 +14,10 @@ from .fields import (
     ArrayField
 )
 from .messages import Message, register
+from .string_message import StringMessage
 from .registry import Registry
 from .stream import StreamHandler
+from .protocols import ProtocolConfig
 
 __all__ = [
     'Field',
@@ -33,6 +35,8 @@ __all__ = [
     'ArrayField',
     'Message',
     'register',
+    'StringMessage',
+    'ProtocolConfig',
     'Registry',
     'StreamHandler'
 ]

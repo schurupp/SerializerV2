@@ -12,13 +12,20 @@ class Field(ABC):
         self,
         default: Any = None,
         is_discriminator: bool = False,
-        is_checksum: bool = False, # NEW
+        is_checksum: bool = False,
         is_timestamp: bool = False,
+        byte_order: str = '<', # < Little Endian, > Big Endian
+        **kwargs
     ):
         self.default = default
         self.is_discriminator = is_discriminator
         self.is_checksum = is_checksum
         self.is_timestamp = is_timestamp
+        self.byte_order = byte_order
+        
+        # Store arbitrary metadata (algorithm, start_field, etc.)
+        for k, v in kwargs.items():
+            setattr(self, k, v)
         self.struct_format: str = "" 
 
     def validate(self, value: Any) -> Any:
@@ -29,35 +36,48 @@ class Field(ABC):
     def to_bytes(self, value: Any) -> bytes:
         pass
 
+    def to_string(self, value: Any) -> str:
+        """Serialize to string (for String Protocol)."""
+        if value is None and self.default is not None:
+            value = self.default
+        if value is None: return ""
+        return str(value)
+
     @abstractmethod
     def from_bytes(self, data: bytes) -> Tuple[Any, int]:
         """Returns (value, consumed_bytes)"""
         pass
 
+import time
+
 class PrimitiveField(Field):
-    def __init__(self, fmt: str, **kwargs):
+    def __init__(self, fmt_char: str, **kwargs):
         super().__init__(**kwargs)
-        self.struct_format = fmt
-        self._struct = struct.Struct(fmt)
+        self.fmt_char = fmt_char
+        self.resolution = kwargs.get('resolution', 's') # s or ms
+        # Construct format with endianness
+        self.struct_format = f"{self.byte_order}{fmt_char}"
+        self._struct = struct.Struct(self.struct_format)
 
     def to_bytes(self, value: Any) -> bytes:
-        # If None, use default? Message handles this usually, 
-        # but to_bytes is called with a value.
-        # If value is None here, it might crash pack.
+        if self.is_timestamp:
+            # Inject current time
+            t = time.time()
+            if self.resolution == 'ms':
+                t *= 1000
+            value = int(t)
+            
         if value is None and self.default is not None:
              value = self.default
+        if value is None:
+             # Default fallback for None to prevent crashing, though Message should handle
+             value = 0
         return self._struct.pack(value)
 
     def from_bytes(self, data: bytes) -> Tuple[Any, int]:
-        # Primitive fields always consume their struct size
-        # We might be passed more data than needed in dynamic context,
-        # so we rely on struct unpack to take what it needs?
-        # struct.unpack expects exact size usually? 
-        # No, unpack requires buffer to be *at least* size.
-        # But unpack returns tuple.
-        # We should slice locally to be safe or trust unpack?
-        # Safe: slice.
         size = self._struct.size
+        if len(data) < size:
+             raise ValueError(f"Not enough data for {self.__class__.__name__}")
         val = self._struct.unpack(data[:size])[0]
         return val, size
 
@@ -101,42 +121,58 @@ class StringField(Field):
     def to_bytes(self, value: str) -> bytes:
         if value is None and self.default is not None:
              value = self.default
-        
-        # If default is also None and value None? Crash or empty string?
         if value is None: value = ""
         
         encoded = value.encode(self.encoding)
         if self.size_mode == "Fixed":
             if len(encoded) > self.length:
                 encoded = encoded[:self.length]
+            # Pad if needed? Struct handles it usually with null bytes
             return self._struct.pack(encoded)
         else:
             l = len(encoded)
-            return struct.pack('I', l) + encoded
+            # Length prefix is default Little Endian usually in this framework or configurable?
+            # Let's use generic packing, assuming stream default is LE unless customized?
+            # Actually, variable length usually uses standard network (BE) or LE. 
+            # We'll stick to LE ('<I') for length to match default primitives
+            return struct.pack('<I', l) + encoded
 
     def from_bytes(self, data: bytes) -> Tuple[str, int]:
         if self.size_mode == "Fixed":
-            raw = self._struct.unpack(data[:self._struct.size])[0]
+            size = self._struct.size
+            if len(data) < size: raise ValueError("Not enough data")
+            raw = self._struct.unpack(data[:size])[0]
             val = raw.decode(self.encoding).rstrip('\x00')
-            return val, self._struct.size
+            return val, size
         else:
-            # Variable length: Read 4 byte length prefix first
             if len(data) < 4:
                 raise ValueError("Not enough data for String length")
-            l = struct.unpack('I', data[:4])[0]
+            l = struct.unpack('<I', data[:4])[0]
             total_len = 4 + l
             if len(data) < total_len:
                 raise ValueError("Not enough data for String content")
             
             val_bytes = data[4:total_len]
+            if isinstance(val_bytes, memoryview):
+                val_bytes = bytes(val_bytes)
             return val_bytes.decode(self.encoding), total_len
 
 class EnumField(Field):
-    def __init__(self, enum_cls: Type[IntEnum], base_type: Type[PrimitiveField] = UInt8, **kwargs):
+    def __init__(self, enum_cls: Type[IntEnum], storage_type: str = "UInt8", **kwargs):
         super().__init__(**kwargs)
         self.enum_cls = enum_cls
-        self.base_field = base_type(**kwargs)
+        self.storage_type = storage_type
+        
+        # Map storage type string to Primitive class
+        type_map = {
+            "UInt8": UInt8, "Int8": Int8,
+            "UInt16": UInt16, "Int16": Int16,
+            "UInt32": UInt32, "Int32": Int32
+        }
+        base_cls = type_map.get(storage_type, UInt8)
+        self.base_field = base_cls(**kwargs)
         self.struct_format = self.base_field.struct_format
+        self._struct = self.base_field._struct
 
     def to_bytes(self, value: Any) -> bytes:
         if value is None and self.default is not None:
@@ -148,6 +184,23 @@ class EnumField(Field):
             val_to_pack = value
         return self.base_field.to_bytes(val_to_pack)
 
+    def to_string(self, value: Any) -> str:
+        if value is None and self.default is not None:
+            value = self.default
+        if value is None: return ""
+        
+        # Try to resolve to Enum member
+        if isinstance(value, self.enum_cls):
+            return value.name
+        
+        # If int, try to find member
+        try:
+            member = self.enum_cls(value)
+            return member.name
+        except (ValueError, TypeError):
+            # Fallback
+            return str(value)
+
     def from_bytes(self, data: bytes) -> Tuple[Any, int]:
         val, size = self.base_field.from_bytes(data)
         try:
@@ -157,9 +210,6 @@ class EnumField(Field):
 
 class FixedPointField(Field):
     def __init__(self, integer_bits: int, fractional_bits: int, encoding: int = 0, **kwargs):
-        """
-        encoding: 0=Unsigned, 1=Signed, 2=Direction-Magnitude
-        """
         super().__init__(**kwargs)
         self.integer_bits = integer_bits
         self.fractional_bits = fractional_bits
@@ -171,20 +221,20 @@ class FixedPointField(Field):
         self.scale = 1 << fractional_bits
         
         # Backing Primitive
+        byte_order = kwargs.get('byte_order', '<')
         if self.total_bits <= 8:
-            # Signed if mode 1, else Unsigned (DirMag is unsigned int with MSB interpretation logic)
-            self.fmt = 'b' if encoding == 1 else 'B'
+            fmt = 'b' if encoding == 1 else 'B'
         elif self.total_bits <= 16:
-            self.fmt = 'h' if encoding == 1 else 'H'
+            fmt = 'h' if encoding == 1 else 'H'
         elif self.total_bits <= 32:
-            self.fmt = 'i' if encoding == 1 else 'I'
+            fmt = 'i' if encoding == 1 else 'I'
         elif self.total_bits <= 64:
-            self.fmt = 'q' if encoding == 1 else 'Q'
+            fmt = 'q' if encoding == 1 else 'Q'
         else:
             raise ValueError("Too many bits for standard primitive backing")
             
-        self._struct = struct.Struct(self.fmt)
-        self.struct_format = self.fmt
+        self.struct_format = f"{byte_order}{fmt}"
+        self._struct = struct.Struct(self.struct_format)
 
     def to_bytes(self, value: float) -> bytes:
         if value is None and self.default is not None:
@@ -205,11 +255,11 @@ class FixedPointField(Field):
         else:
             # Normal scaling
             raw_val = int(value * self.scale)
-            # Struct pack handles 2's complement for signed, or bounds for unsigned
             return self._struct.pack(raw_val)
 
     def from_bytes(self, data: bytes) -> Tuple[float, int]:
         size = self._struct.size
+        # Check size? Primitive unpack will fail if not enough
         raw_val = self._struct.unpack(data[:size])[0]
         
         if self.encoding == 2: # Dir-Mag
@@ -237,19 +287,26 @@ class BitField(Field):
         self.base_field = base_type(**kwargs)
         self.struct_format = self.base_field.struct_format
         
-    def to_bytes(self, value: dict) -> bytes:
+    def to_bytes(self, value: Union[dict, int]) -> bytes:
+        # HANDLING DEFAULT VALUE BUG: 
+        # If value is passed as int (pre-computed default), use it directly.
         if value is None and self.default is not None:
              value = self.default
-        if value is None: value = {}
+        if value is None: value = 0 # Default to 0 if nothing
              
-        packed_int = 0
-        current_shift = 0
-        for b in self.bits:
-            val = value.get(b.name, 0)
-            mask = (1 << b.width) - 1
-            val &= mask
-            packed_int |= (val << current_shift)
-            current_shift += b.width
+        if isinstance(value, int):
+            packed_int = value
+        else:
+            # It's a dict
+            packed_int = 0
+            current_shift = 0
+            for b in self.bits:
+                val = value.get(b.name, 0)
+                mask = (1 << b.width) - 1
+                val &= mask
+                packed_int |= (val << current_shift)
+                current_shift += b.width
+                
         return self.base_field.to_bytes(packed_int)
 
     def from_bytes(self, data: bytes) -> Tuple[dict, int]:
@@ -271,8 +328,18 @@ class ArrayField(Field):
         self.count = count 
         self.count_field = count_field 
         
+        # If fixed primitive, optimize
         if mode == "Fixed" and isinstance(item_type, PrimitiveField):
-             self.struct_format = f"{count}{item_type.struct_format}"
+             # inherit byte order from item type if present?
+             # Construct format string: e.g. "5I" or ">5I"
+             # struct format for array is "{ByteOrder}{Count}{Char}"
+             # item_type.struct_format is e.g. "<I". we need "I"
+             try:
+                 fmt_char = item_type.fmt_char
+                 bo = item_type.byte_order
+                 self.struct_format = f"{bo}{count}{fmt_char}"
+             except AttributeError:
+                 self.struct_format = "" # item_type might not be PrimitiveField?
 
     def to_bytes(self, value: list) -> bytes:
         if value is None and self.default is not None:
@@ -280,32 +347,35 @@ class ArrayField(Field):
         if value is None: value = []
 
         if self.mode == "Fixed":
-            if len(value) != self.count:
-                # pad or truncate? Requirements strict? 
-                # Let's just user helper.
-                pass
+            # Padding Logic: Ensure length matches self.count
+            current_len = len(value)
+            if current_len < self.count:
+                # Pad with None (safe default, let to_bytes handle or sanitize)
+                value.extend([None] * (self.count - current_len))
+            elif current_len > self.count:
+                value = value[:self.count]
+            
             if self.struct_format:
-                 return struct.pack(self.struct_format, *value)
+                 # Sanitize None values for struct.pack
+                 # Optimized path: assume 0 for None
+                 sanitized = [(v if v is not None else 0) for v in value]
+                 return struct.pack(self.struct_format, *sanitized)
             else:
+                 # Generic path
                  return b''.join(self.item_type.to_bytes(v) for v in value)
         else:
              return b''.join(self.item_type.to_bytes(v) for v in value)
 
     def from_bytes(self, data: bytes) -> Tuple[list, int]:
         values = []
-        total_consumed = 0
         
         if self.mode == "Fixed":
-            # If primitive packed
             if self.struct_format:
-                 count = self.count
-                 # struct format is e.g. "5I"
-                 # struct.calcsize can tell us bytes
                  s = struct.Struct(self.struct_format)
                  size = s.size
+                 if len(data) < size: raise ValueError("Not enough data for Array")
                  return list(s.unpack(data[:size])), size
             else:
-                 # Fixed count, complex items
                  offset = 0
                  for _ in range(self.count):
                      val, cons = self.item_type.from_bytes(data[offset:])
@@ -314,26 +384,7 @@ class ArrayField(Field):
                  return values, offset
                  
         elif self.mode == "Dynamic":
-            # Dynamic means we read until end of stream?
-            # OR we expect a length prefix?
-            # Standard pattern for Dynamic Array in this framework (from to_bytes):
-            # It blindly joins bytes.
-            # If 'count_field' exists, Message usually handles it?
-            # No, if Field is responsible for deserializing itself:
-            # If no length prefix in stream, we can only read until EOF?
-            # But we might be in middle of message.
-            
-            # Assumption: Dynamic Arrays in this V2 framework 
-            # are usually "Rest of Message" OR implicitly length-prefixed if we enforce it.
-            # BUT `to_bytes` didn't enforce length prefix.
-            # So `from_bytes` consumes ALL remaining data?
-            
-            # Let's assume consumes all remaining for now (Tier 3 usage).
-            # To be robust, one should use Fixed array or have a length prefix logic.
-            # If we want to support count_field, we need access to the message context (fields dict values), 
-            # which we don't have here easily.
-            
-            # For Tier 3, `targets` is dynamic.
+            # Consume remaining
             offset = 0
             while offset < len(data):
                 try:
@@ -341,7 +392,6 @@ class ArrayField(Field):
                     values.append(val)
                     offset += cons
                 except (ValueError, struct.error):
-                    # Stop if not enough data for next item
                     break
             return values, offset
             

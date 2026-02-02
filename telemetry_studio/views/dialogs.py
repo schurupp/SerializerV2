@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from typing import Dict, Any, List
 from telemetry_studio.data_models import FieldDefinition, EnumDefinition, ProjectDefinition
+from telemetry_studio.widgets.checkable_combo import CheckableComboBox
 
 class BaseConfigDialog(QDialog):
     def __init__(self, current_options: Dict[str, Any], project: ProjectDefinition, title="Field Config", parent=None):
@@ -19,18 +20,15 @@ class BaseConfigDialog(QDialog):
         self.layout.addLayout(self.form)
         
         # Active Configs
-        self.config_list = QListWidget()
-        self.config_list.setSelectionMode(QListWidget.MultiSelection)
-        # Populate
-        all_configs = self.project.spl_configs
-        current_active = current_options.get("active_configs", [])
+        self.config_list = CheckableComboBox()
         
-        for cfg in all_configs:
-            from PySide6.QtWidgets import QListWidgetItem
-            item = QListWidgetItem(cfg.name)
-            self.config_list.addItem(item)
-            if cfg.name in current_active:
-                item.setSelected(True)
+        # Populate
+        all_configs = [cfg.name for cfg in self.project.spl_configs]
+        self.config_list.addItems(sorted(all_configs))
+        
+        current_active = current_options.get("active_configs", [])
+        if current_active:
+             self.config_list.setCheckedItems(current_active)
         
         self.layout.addWidget(QLabel("Active Configs:"))
         self.layout.addWidget(self.config_list)
@@ -43,14 +41,14 @@ class BaseConfigDialog(QDialog):
         
     def get_base_options(self) -> Dict[str, Any]:
         # Collect active configs
-        selected_items = self.config_list.selectedItems()
-        active = [i.text() for i in selected_items]
+        active = self.config_list.checkedItems()
         return {"active_configs": active}
 
 class PrimitiveConfigDialog(BaseConfigDialog):
-    def __init__(self, current_options, project, field_type="UInt32", parent=None):
+    def __init__(self, current_options, project, field_type="UInt32", available_fields=None, parent=None):
         super().__init__(current_options, project, f"{field_type} Config", parent)
         self.field_type = field_type
+        self.available_fields = available_fields or []
         
         # Default Value Widget logic
         if field_type == "Bool":
@@ -71,26 +69,83 @@ class PrimitiveConfigDialog(BaseConfigDialog):
              except: pass
         else:
              self.default_val = QSpinBox()
-             # Range depends on type ideally, but generic safe range:
              self.default_val.setRange(-2147483648, 2147483647)
              try:
                  val = current_options.get("default")
                  if val is not None: self.default_val.setValue(int(val))
              except: pass
              
+        # Byte Order
+        self.byte_order = QComboBox()
+        self.byte_order.addItems(["Little Endian (<)", "Big Endian (>)"])
+        b_order = current_options.get("byte_order", "<")
+        self.byte_order.setCurrentIndex(1 if b_order == ">" else 0)
+
         self.checks = {
             "is_discriminator": QCheckBox("Is Discriminator"),
             "is_checksum": QCheckBox("Is Checksum"),
             "is_timestamp": QCheckBox("Is Timestamp"),
         }
         
+        # Exclusive Logic
+        self.checks["is_checksum"].toggled.connect(lambda c: self.on_exclusive_toggled("is_checksum", c))
+        self.checks["is_timestamp"].toggled.connect(lambda c: self.on_exclusive_toggled("is_timestamp", c))
+        
         self.form.addRow("Default Value", self.default_val)
         
-        # Only show relevant checks
         if field_type != "Bool":
+             self.form.addRow("Byte Order", self.byte_order)
              for k, v in self.checks.items():
                  if current_options.get(k): v.setChecked(True)
                  self.form.addRow(v)
+
+             # Checksum Config
+             self.checksum_widget = QWidget()
+             self.checksum_layout = QFormLayout(self.checksum_widget)
+             self.checksum_algo = QComboBox()
+             self.checksum_algo.addItems(["CRC16", "CRC32", "XOR", "ByteSum", "ByteSum1C", "ByteSum2C", "AdditiveWord"])
+             
+             self.start_field = QComboBox()
+             self.start_field.addItems(self.available_fields)
+             self.end_field = QComboBox()
+             self.end_field.addItems(self.available_fields)
+             
+             self.checksum_layout.addRow("Algorithm", self.checksum_algo)
+             self.checksum_layout.addRow("Start Field", self.start_field)
+             self.checksum_layout.addRow("End Field", self.end_field)
+             
+             self.form.addRow(self.checksum_widget)
+             self.checksum_widget.setVisible(False)
+             self.checks["is_checksum"].toggled.connect(self.checksum_widget.setVisible)
+             
+             # Load existing checksum opts
+             if current_options.get("is_checksum"):
+                 self.checksum_widget.setVisible(True)
+                 self.checksum_algo.setCurrentText(current_options.get("algorithm", "CRC16"))
+                 self.start_field.setCurrentText(current_options.get("start_field", ""))
+                 self.end_field.setCurrentText(current_options.get("end_field", ""))
+
+             # Timestamp Config
+             self.timestamp_widget = QWidget()
+             self.timestamp_layout = QFormLayout(self.timestamp_widget)
+             self.time_resolution = QComboBox()
+             self.time_resolution.addItems(["s", "ms"])
+             self.timestamp_layout.addRow("Resolution", self.time_resolution)
+             
+             self.form.addRow(self.timestamp_widget)
+             self.timestamp_widget.setVisible(False)
+             self.checks["is_timestamp"].toggled.connect(self.timestamp_widget.setVisible)
+             
+             if current_options.get("is_timestamp"):
+                 self.timestamp_widget.setVisible(True)
+                 self.time_resolution.setCurrentText(current_options.get("resolution", "s"))
+    
+    def on_exclusive_toggled(self, name, checked):
+        if not checked: return
+        if name == "is_checksum":
+            self.checks["is_timestamp"].setChecked(False)
+        elif name == "is_timestamp":
+            self.checks["is_checksum"].setChecked(False)
 
     def get_options(self):
         opts = self.get_base_options()
@@ -100,8 +155,18 @@ class PrimitiveConfigDialog(BaseConfigDialog):
             opts["default"] = self.default_val.value()
             
         if self.field_type != "Bool":
+            opts["byte_order"] = ">" if self.byte_order.currentIndex() == 1 else "<"
             for k, v in self.checks.items():
                 if v.isChecked(): opts[k] = True
+            
+            if opts.get("is_checksum"):
+                 opts["algorithm"] = self.checksum_algo.currentText()
+                 opts["start_field"] = self.start_field.currentText()
+                 opts["end_field"] = self.end_field.currentText()
+                 
+            if opts.get("is_timestamp"):
+                 opts["resolution"] = self.time_resolution.currentText()
+                 
         return opts
 
 class StringConfigDialog(BaseConfigDialog):
@@ -145,6 +210,13 @@ class BitFieldConfigDialog(BaseConfigDialog):
         self.project = project
         self.project_enums = [e.name for e in project.enums]
         
+        # Byte Order
+        self.byte_order = QComboBox()
+        self.byte_order.addItems(["Little Endian (<)", "Big Endian (>)"])
+        b_order = current_options.get("byte_order", "<")
+        self.byte_order.setCurrentIndex(1 if b_order == ">" else 0)
+        self.form.addRow("Byte Order", self.byte_order)
+        
         # Cols: Name, Type, Width, Enum, Default
         self.table = QTableWidget(0, 5) 
         self.table.setHorizontalHeaderLabels(["Name", "Type", "Width", "Enum Class", "Default"])
@@ -160,7 +232,11 @@ class BitFieldConfigDialog(BaseConfigDialog):
         btn_box.addWidget(add_btn)
         btn_box.addWidget(del_btn)
         
-        self.layout.insertWidget(0, self.table)
+        self.layout.insertWidget(0, self.table) # Insert table above form/buttons? No strict order
+        # Layout: [Title], Form(active configs), Table, Buttons
+        # Our BaseConfigDialog puts Form first.
+        # We can add table to layout.
+        self.layout.addWidget(self.table)
         self.layout.addLayout(btn_box)
         
     def refresh_table(self):
@@ -240,10 +316,7 @@ class BitFieldConfigDialog(BaseConfigDialog):
         if not isinstance(def_w, QComboBox): return
         
         def_w.clear()
-        if enum_name in self.project.enums_dict: # Need efficient lookup
-            # Wait, project.enums is a list. I should map it inside init or just iterate
-            # In init I did: self.project_enums = [e.name...]
-            # Need to access EnumDef items
+        if enum_name in self.project.enums_dict: 
             for e in self.project.enums:
                 if e.name == enum_name:
                     for item in e.items:
@@ -262,6 +335,7 @@ class BitFieldConfigDialog(BaseConfigDialog):
             
     def get_options(self):
         opts = self.get_base_options()
+        opts["byte_order"] = ">" if self.byte_order.currentIndex() == 1 else "<"
         new_bits = []
         
         # Calculate combined integer default
@@ -284,13 +358,9 @@ class BitFieldConfigDialog(BaseConfigDialog):
             def_w = self.table.cellWidget(r, 4)
             current_def = 0
             if isinstance(def_w, QComboBox):
-                # For Bool: Index 0=False, 1=True. But check text maybe?
-                # Bool Items: ["False", "True"]
-                # Enum Items: "Name (Val)", UserData=Val
                 current_def = def_w.currentData()
-                if current_def is None: # Maybe Bool or no data set
+                if current_def is None: 
                      if def_w.count() > 0:
-                         # If Bool, text is "False"/"True"
                          txt = def_w.currentText()
                          if txt == "True": current_def = 1
                          elif txt == "False": current_def = 0
@@ -329,11 +399,16 @@ class EnumConfigDialog(BaseConfigDialog):
         self.combo.currentTextChanged.connect(self.on_enum_changed)
         
         self.default_combo = QComboBox()
+        self.storage_type = QComboBox()
+        self.storage_type.addItems(["UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32"])
         
         cur = current_options.get("enum_name")
         if cur: 
             self.combo.setCurrentText(cur)
         
+        st_type = current_options.get("storage_type", "UInt8")
+        self.storage_type.setCurrentText(st_type)
+
         # Trigger populate
         self.on_enum_changed(self.combo.currentText())
         
@@ -344,6 +419,7 @@ class EnumConfigDialog(BaseConfigDialog):
              
         self.form.addRow("Select Enum", self.combo)
         self.form.addRow("Default Value", self.default_combo)
+        self.form.addRow("Storage Type", self.storage_type)
         
     def on_enum_changed(self, name):
         self.default_combo.clear()
@@ -362,6 +438,7 @@ class EnumConfigDialog(BaseConfigDialog):
         opts = self.get_base_options()
         opts["enum_name"] = self.combo.currentText()
         opts["default"] = self.default_combo.currentData()
+        opts["storage_type"] = self.storage_type.currentText()
         return opts
 
 class ArrayConfigDialog(BaseConfigDialog):
@@ -417,12 +494,19 @@ class FixedPointConfigDialog(BaseConfigDialog):
         self.default_val = QDoubleSpinBox()
         self.default_val.setRange(-999999, 999999)
         
+        # Byte Order
+        self.byte_order = QComboBox()
+        self.byte_order.addItems(["Little Endian (<)", "Big Endian (>)"])
+        b_order = current_options.get("byte_order", "<")
+        self.byte_order.setCurrentIndex(1 if b_order == ">" else 0)
+        
         self.int_bits.setValue(current_options.get("integer_bits", 8))
         self.frac_bits.setValue(current_options.get("fractional_bits", 8))
         self.encoding.setCurrentIndex(current_options.get("encoding", 0))
         self.default_val.setValue(float(current_options.get("default", 0.0)))
         
         self.form.addRow("Default Value", self.default_val)
+        self.form.addRow("Byte Order", self.byte_order)
         self.form.addRow("Integer Bits", self.int_bits)
         self.form.addRow("Fractional Bits", self.frac_bits)
         self.form.addRow("Encoding", self.encoding)
@@ -433,6 +517,7 @@ class FixedPointConfigDialog(BaseConfigDialog):
             "default": self.default_val.value(),
             "integer_bits": self.int_bits.value(),
             "fractional_bits": self.frac_bits.value(),
-            "encoding": self.encoding.currentIndex()
+            "encoding": self.encoding.currentIndex(),
+            "byte_order": ">" if self.byte_order.currentIndex() == 1 else "<"
         })
         return opts

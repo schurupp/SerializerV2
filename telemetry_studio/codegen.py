@@ -4,9 +4,14 @@ class CodeGenerator:
     def __init__(self, project: ProjectDefinition):
         self.project = project
 
-    def generate_enums(self) -> str:
+    def generate_enums(self, target_config: str = None) -> str:
         lines = ["from enum import IntEnum", "", ""]
         for enum_def in self.project.enums:
+            # SPL Filtering
+            if target_config and enum_def.active_configs:
+                if target_config not in enum_def.active_configs:
+                    continue
+                    
             lines.append(f"class {enum_def.name}(IntEnum):")
             if not enum_def.items:
                 lines.append("    pass")
@@ -29,8 +34,15 @@ class CodeGenerator:
                     lines.append(f"@register(system_config_id='{cfg}')")
             else:
                 lines.append("@register") 
+            
+            base_cls = "Message"
+            if getattr(msg, 'protocol_mode', 'binary') == 'string':
+                base_cls = "StringMessage"
                 
-            lines.append(f"class {msg.name}(Message):")
+            lines.append(f"class {msg.name}({base_cls}):")
+            
+            if getattr(msg, 'protocol_mode', 'binary') == 'string':
+                 lines.append(f'    protocol_mode = "string"')
             
             if not msg.fields:
                 lines.append("    pass")
@@ -56,31 +68,52 @@ class CodeGenerator:
         args = []
         opts = field.options.copy()
         
+        # Helper keys to exclude from generic kwargs
+        exclude_keys = ["active_configs", "bits", "enum_name", "storage_type", "item_type"] 
+        
         if field.field_type == "BitField":
             bits = opts.pop("bits", [])
-            bit_strs = [f"Bit({b['width']}, '{b['name']}')" for b in bits]
+            bit_strs = []
+            for b in bits:
+                # Bit(width, name, [data_type, default, enum...])
+                # Bit class: __init__(width, name, data_type, default_value, enum_name)
+                # To be precise we should output args. 
+                # Bit(1, 'foo', data_type='Bool', default_value=0)
+                # Let's simple format:
+                b_args = [str(b['width']), f"'{b['name']}'"]
+                if "data_type" in b: b_args.append(f"data_type='{b['data_type']}'")
+                if "default_value" in b: b_args.append(f"default_value={b['default_value']}")
+                if "enum_name" in b and b['enum_name']: b_args.append(f"enum_name='{b['enum_name']}'")
+                
+                bit_strs.append(f"Bit({', '.join(b_args)})")
+                
             args.append(f"[{', '.join(bit_strs)}]")
-            # Base type default is UInt32, usually fine to omit if default
             
         elif field.field_type == "Enum":
              enum_name = opts.pop("enum_name", "MyEnum")
-             args.append(enum_name) # First arg is enum_cls
-             args.append("UInt8") # Second arg is base_type
+             stor_type = opts.pop("storage_type", "UInt8")
+             args.append(enum_name) # enum_cls
+             args.append(f"storage_type='{stor_type}'")
              
         elif field.field_type == "Array":
-             # ArrayField(item_type, mode, count...)
-             # We need to constructing item_type object from options?
-             # For now, let's assume simple primitive array or fix for demo
-             # The demo uses ArrayField(UInt16(), ...) logic? 
-             # No, ArrayConfigDialog logic is complex.
-             # For now, just fix 'Array' -> 'UInt8()' default to avoid crash
+             # Placeholder for Array: ArrayField(UInt8())
              args.append("UInt8()")
              
+        # Active Configs cleanup
         if "active_configs" in opts and not opts["active_configs"]:
-            del opts["active_configs"] 
-            
+            del opts["active_configs"]
+        
+        if field.field_type == "String":
+             if opts.get("size_mode") == "Dynamic":
+                 if "length" in opts: del opts["length"]
+             if opts.get("encoding") == "utf-8":
+                 del opts["encoding"]
+
+        # Generic Kwargs
         for k, v in opts.items():
+            if k in exclude_keys: continue
             if k == "count_field" and opts.get("mode") == "Fixed": continue
+            if k == "byte_order" and v == "<": continue # Skip default Little Endian
             
             if isinstance(v, str):
                 args.append(f"{k}='{v}'")

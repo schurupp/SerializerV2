@@ -9,8 +9,6 @@ import random
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from serializer_core import *
-from enums import WorkingMode
-from Messages import TestMsg1, TestMsg2 # Explicitly import or *
 from Messages import *
 
 # Reuse TestMessage from integration test or define simple one
@@ -98,11 +96,8 @@ def run_client(ready_event):
     # Pre-pack
     data_buffer = bytearray()
     for i in range(MSG_COUNT):
-        m = TestMsg3()
-        m.gps_pos = random.uniform(-90, 90)
+        m = TestMsg()
         # Set dynamic timestamp to verify it works
-        if hasattr(m, 'timestamp'):
-            m.timestamp = int(time.time()) + i
         data_buffer.extend(m.serialize())
         
     sock.sendall(data_buffer)

@@ -1,11 +1,12 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableView, QPushButton, QHBoxLayout, 
-    QHeaderView, QComboBox, QStyledItemDelegate, QLabel, QListWidget, QTableWidget, QTableWidgetItem, QMenu
+    QHeaderView, QComboBox, QStyledItemDelegate, QLabel, QListWidget, QTableWidget, QTableWidgetItem, QMenu, QCheckBox
 )
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt, QModelIndex
 from telemetry_studio.qt_models import FieldTableModel
 from telemetry_studio.data_models import MessageDefinition, ProjectDefinition
+from telemetry_studio.widgets.checkable_combo import CheckableComboBox
 
 class TypeDelegate(QStyledItemDelegate):
     TYPES = [
@@ -13,10 +14,25 @@ class TypeDelegate(QStyledItemDelegate):
         "UInt64", "Int64", "Float32", "Float64", "Bool",
         "String", "BitField", "Enum", "Array", "FixedPoint"
     ]
+    STRING_TYPES = ["String", "Enum"]
+
+    def __init__(self, editor_view):
+        super().__init__(editor_view)
+        self.editor = editor_view
+
     def createEditor(self, parent, option, index):
         combo = QComboBox(parent)
-        combo.addItems(self.TYPES)
+        
+        mode = "binary"
+        if self.editor.project_context:
+            mode = getattr(self.editor.project_context, 'protocol_mode', 'binary')
+            
+        if mode == 'string':
+            combo.addItems(self.STRING_TYPES)
+        else:
+            combo.addItems(self.TYPES)
         return combo
+        
     def setEditorData(self, editor, index):
         val = index.model().data(index, Qt.EditRole)
         idx = editor.findText(val)
@@ -39,6 +55,7 @@ class MessageEditorView(QWidget):
         # Discriminator Table
         disc_layout = QVBoxLayout()
         disc_layout.addWidget(QLabel("Discriminator Values:"))
+        
         self.disc_table = QTableWidget(0, 2)
         self.disc_table.setHorizontalHeaderLabels(["Field", "Value (Hex)"])
         disc_layout.addWidget(self.disc_table)
@@ -46,9 +63,9 @@ class MessageEditorView(QWidget):
         # Message Configs
         config_layout = QVBoxLayout()
         config_layout.addWidget(QLabel("Active Message Configs:"))
-        self.msg_configs = QListWidget()
-        self.msg_configs.setSelectionMode(QListWidget.MultiSelection)
-        self.msg_configs.itemSelectionChanged.connect(self.on_config_changed)
+        self.msg_configs = CheckableComboBox()
+        # Populate later based on project SPL configs
+        self.msg_configs.model().dataChanged.connect(self.on_config_changed)
         config_layout.addWidget(self.msg_configs)
         
         self.header_layout.addLayout(disc_layout)
@@ -73,23 +90,40 @@ class MessageEditorView(QWidget):
     def set_message(self, msg_def: MessageDefinition):
         self.current_msg = msg_def
         self.model = FieldTableModel(msg_def)
+        
+        # Connect signals for Updates
+        self.model.dataChanged.connect(lambda: self.refresh_header())
+        self.model.rowsInserted.connect(lambda: self.refresh_header())
+        self.model.rowsRemoved.connect(lambda: self.refresh_header())
+        self.model.modelReset.connect(lambda: self.refresh_header())
+        
+        self.model.modelReset.connect(lambda: self.refresh_header())
+        
         self.table.setModel(self.model)
-        self.table.setItemDelegateForColumn(1, TypeDelegate(self.table))
+        self.table.setItemDelegateForColumn(1, TypeDelegate(self))
         
         self.refresh_header()
+        
+
 
     def refresh_header(self):
         if not self.current_msg: return
         
         # Active Configs
+        self.msg_configs.blockSignals(True)
         self.msg_configs.clear()
-        for spl in self.project_context.spl_configs:
-
-            from PySide6.QtWidgets import QListWidgetItem
-            item = QListWidgetItem(spl.name)
-            self.msg_configs.addItem(item)
-            if spl.name in self.current_msg.active_configs:
-                item.setSelected(True)
+        
+        all_tags = []
+        if self.project_context:
+            for spl in self.project_context.spl_configs:
+                all_tags.append(spl.name)
+        
+        self.msg_configs.addItems(sorted(all_tags))
+        
+        if self.current_msg.active_configs:
+            self.msg_configs.setCheckedItems(self.current_msg.active_configs)
+            
+        self.msg_configs.blockSignals(False)
                 
         # Discriminators
         self.disc_table.setRowCount(0)
@@ -104,8 +138,7 @@ class MessageEditorView(QWidget):
 
     def on_config_changed(self):
         if not self.current_msg: return
-        sel = self.msg_configs.selectedItems()
-        self.current_msg.active_configs = [i.text() for i in sel]
+        self.current_msg.active_configs = self.msg_configs.checkedItems()
 
     def add_field(self):
         if self.model: self.model.add_field()
@@ -145,7 +178,8 @@ class MessageEditorView(QWidget):
         dlg = None
         if ftype in ["UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32", 
                      "UInt64", "Int64", "Float32", "Float64", "Bool"]:
-            dlg = PrimitiveConfigDialog(field_def.options, self.project_context, ftype, self)
+            all_fields = [f.name for f in self.current_msg.fields]
+            dlg = PrimitiveConfigDialog(field_def.options, self.project_context, ftype, all_fields, self)
         elif ftype == "String":
             dlg = StringConfigDialog(field_def.options, self.project_context, self)
         elif ftype == "BitField":
