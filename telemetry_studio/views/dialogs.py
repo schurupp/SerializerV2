@@ -84,11 +84,13 @@ class PrimitiveConfigDialog(BaseConfigDialog):
         self.checks = {
             "is_discriminator": QCheckBox("Is Discriminator"),
             "is_checksum": QCheckBox("Is Checksum"),
+            "is_length": QCheckBox("Is Length"),
             "is_timestamp": QCheckBox("Is Timestamp"),
         }
         
         # Exclusive Logic
         self.checks["is_checksum"].toggled.connect(lambda c: self.on_exclusive_toggled("is_checksum", c))
+        self.checks["is_length"].toggled.connect(lambda c: self.on_exclusive_toggled("is_length", c))
         self.checks["is_timestamp"].toggled.connect(lambda c: self.on_exclusive_toggled("is_timestamp", c))
         
         self.form.addRow("Default Value", self.default_val)
@@ -144,8 +146,13 @@ class PrimitiveConfigDialog(BaseConfigDialog):
         if not checked: return
         if name == "is_checksum":
             self.checks["is_timestamp"].setChecked(False)
+            self.checks["is_length"].setChecked(False)
         elif name == "is_timestamp":
             self.checks["is_checksum"].setChecked(False)
+            self.checks["is_length"].setChecked(False)
+        elif name == "is_length":
+            self.checks["is_checksum"].setChecked(False)
+            self.checks["is_timestamp"].setChecked(False)
 
     def get_options(self):
         opts = self.get_base_options()
@@ -167,6 +174,10 @@ class PrimitiveConfigDialog(BaseConfigDialog):
             if opts.get("is_timestamp"):
                  opts["resolution"] = self.time_resolution.currentText()
                  
+            if opts.get("is_length"):
+                 opts["start_field"] = self.len_start_field.currentText()
+                 opts["end_field"] = self.len_end_field.currentText()
+                  
         return opts
 
 class StringConfigDialog(BaseConfigDialog):
@@ -221,7 +232,21 @@ class BitFieldConfigDialog(BaseConfigDialog):
         self.byte_order.addItems(["Little Endian (<)", "Big Endian (>)"])
         b_order = current_options.get("byte_order", "<")
         self.byte_order.setCurrentIndex(1 if b_order == ">" else 0)
+        self.byte_order.setCurrentIndex(1 if b_order == ">" else 0)
+        self.byte_order.setCurrentIndex(1 if b_order == ">" else 0)
         self.form.addRow("Byte Order", self.byte_order)
+        
+        # Bit Order
+        self.bit_order = QComboBox()
+        self.bit_order.addItems(["LSB", "MSB"])
+        self.bit_order.setCurrentText(current_options.get("bit_order", "LSB"))
+        self.form.addRow("Bit Order", self.bit_order)
+        
+        # Bit Order
+        self.bit_order = QComboBox()
+        self.bit_order.addItems(["LSB", "MSB"])
+        self.bit_order.setCurrentText(current_options.get("bit_order", "LSB"))
+        self.form.addRow("Bit Order", self.bit_order)
         
         # Cols: Name, Type, Width, Enum, Default
         self.table = QTableWidget(0, 5) 
@@ -342,6 +367,7 @@ class BitFieldConfigDialog(BaseConfigDialog):
     def get_options(self):
         opts = self.get_base_options()
         opts["byte_order"] = ">" if self.byte_order.currentIndex() == 1 else "<"
+        opts["bit_order"] = self.bit_order.currentText()
         new_bits = []
         
         # Calculate combined integer default
@@ -406,7 +432,12 @@ class EnumConfigDialog(BaseConfigDialog):
         
         self.default_combo = QComboBox()
         self.storage_type = QComboBox()
-        self.storage_type.addItems(["UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32", "String"])
+        
+        is_string_mode = getattr(project, 'protocol_mode', 'binary') == 'string'
+        if is_string_mode:
+            self.storage_type.addItems(["String"])
+        else:
+            self.storage_type.addItems(["UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32", "String"])
         
         cur = current_options.get("enum_name")
         if cur: 

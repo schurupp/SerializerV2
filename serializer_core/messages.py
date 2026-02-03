@@ -30,9 +30,10 @@ class Message:
         from . import checksums
         import time
         chunks = []
-        patches = [] # (checksum_field_name, field_obj, offset_in_struct)
+        checksum_patches = [] # (checksum_field_name, field_obj, offset_in_struct)
+        length_patches = []
         
-        # 1. Pass 1: Pack data and identify checksums
+        # 1. Pass 1: Pack data and identify checksums/lengths
         current_offset = 0
         field_info = {} # name -> {'start': int, 'size': int}
 
@@ -53,14 +54,27 @@ class Message:
                     f_size = field._struct.size
                     field_info[name] = {'start': chunk_start_offset + local_offset, 'size': f_size}
                     
+                    field_info[name] = {'start': chunk_start_offset + local_offset, 'size': f_size}
+                    
                     # Checksum Placeholders
                     if field.is_checksum:
-                        patches.append({
+                        checksum_patches.append({
                             'name': name,
                             'field': field,
                             'offset': chunk_start_offset + local_offset
                         })
                         val = 0 # Placeholder
+                    
+                    # Length Placeholders
+                    elif field.is_length:
+                        length_patches.append({
+                            'name': name,
+                            'field': field,
+                            'offset': chunk_start_offset + local_offset
+                        })
+                        val = 0 # Placeholder
+                        
+                    # Timestamp Injection
                     
                     # Timestamp Injection
                     elif field.is_timestamp:
@@ -108,7 +122,37 @@ class Message:
         # 3. Pass 2: Apply Patches
         field_offsets = {name: info['start'] for name, info in field_info.items()}
         
-        for patch in patches:
+        # 3. Pass 2: Apply Patches (Lengths then Checksums)
+        
+        # 2a. Apply Lengths
+        for patch in length_patches:
+            name = patch['name']
+            field = patch['field']
+            offset = patch['offset']
+            
+            start_field = getattr(field, 'start_field', None)
+            end_field = getattr(field, 'end_field', None)
+            
+            if start_field and end_field:
+                start_info = field_info.get(start_field)
+                end_info = field_info.get(end_field)
+                
+                if start_info and end_info:
+                    start_byte = start_info['start']
+                    # Convention: Inclusive of end field size?
+                    # Common pattern: Length of Payload.
+                    # Payload = [StartField ... EndField]
+                    end_byte = end_info['start'] + end_info['size']
+                    
+                    calc_len = end_byte - start_byte
+                    if calc_len < 0: calc_len = 0
+                    
+                    # Pack into buffer
+                    if hasattr(field, '_struct'):
+                        field._struct.pack_into(buffer, offset, calc_len)
+                        
+        # 2b. Apply Checksums
+        for patch in checksum_patches:
             name = patch['name']
             field = patch['field']
             offset = patch['offset'] # Offset of the checksum field itself

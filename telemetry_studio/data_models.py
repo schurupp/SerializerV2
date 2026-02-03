@@ -11,11 +11,12 @@ class FieldDefinition:
 @dataclass
 class EnumItem:
     name: str
-    value: int
+    value: Any # int or str
 
 @dataclass
 class EnumDefinition:
     name: str = "NewEnum"
+    storage_type: str = "UInt32"
     items: List[EnumItem] = field(default_factory=list)
     active_configs: List[str] = field(default_factory=list)
 
@@ -33,6 +34,7 @@ class MessageDefinition:
 
 @dataclass
 class ProjectDefinition:
+    name: str = "NewProject"
     messages: List[MessageDefinition] = field(default_factory=list)
     enums: List[EnumDefinition] = field(default_factory=list)
     spl_configs: List[SPLDefinition] = field(default_factory=list) # Global list of SPL tags

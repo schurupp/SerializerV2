@@ -13,13 +13,16 @@ class Field(ABC):
         default: Any = None,
         is_discriminator: bool = False,
         is_checksum: bool = False,
+        is_length: bool = False,
         is_timestamp: bool = False,
         byte_order: Optional[str] = None, # None=Inherit, < Little, > Big
         **kwargs
     ):
         self.default = default
         self.is_discriminator = is_discriminator
+        self.is_discriminator = is_discriminator
         self.is_checksum = is_checksum
+        self.is_length = is_length
         self.is_timestamp = is_timestamp
         self.byte_order = byte_order
         
@@ -327,9 +330,10 @@ class Bit:
         self.enum_name = enum_name
 
 class BitField(Field):
-    def __init__(self, bits: List[Bit], base_type: Type[PrimitiveField] = UInt32, **kwargs):
+    def __init__(self, bits: List[Bit], base_type: Type[PrimitiveField] = UInt32, bit_order: str = "LSB", **kwargs):
         super().__init__(**kwargs)
         self.bits = bits
+        self.bit_order = bit_order
         self.base_field = base_type(**kwargs)
         self.struct_format = self.base_field.struct_format
         
@@ -345,12 +349,28 @@ class BitField(Field):
         else:
             # It's a dict
             packed_int = 0
+            # It's a dict
+            packed_int = 0
+            
+            # Calculate total width for MSB logic
+            total_width = sum(b.width for b in self.bits)
             current_shift = 0
+            
             for b in self.bits:
                 val = value.get(b.name, 0)
                 mask = (1 << b.width) - 1
                 val &= mask
-                packed_int |= (val << current_shift)
+                
+                if self.bit_order == "MSB":
+                     # MSB First packing
+                     # First field occupies the HIGHEST bits
+                     # Shift = Total - CurrentShift - Width
+                     shift = total_width - current_shift - b.width
+                     packed_int |= (val << shift)
+                else:
+                     # LSB First (Standard)
+                     packed_int |= (val << current_shift)
+                     
                 current_shift += b.width
                 
         return self.base_field.to_bytes(packed_int)
@@ -358,10 +378,19 @@ class BitField(Field):
     def from_bytes(self, data: bytes) -> Tuple[dict, int]:
         raw_val, size = self.base_field.from_bytes(data)
         result = {}
+        # Calculate total width for MSB logic
+        total_width = sum(b.width for b in self.bits)
         current_shift = 0
+        
         for b in self.bits:
             mask = (1 << b.width) - 1
-            val = (raw_val >> current_shift) & mask
+            
+            if self.bit_order == "MSB":
+                shift = total_width - current_shift - b.width
+                val = (raw_val >> shift) & mask
+            else:
+                val = (raw_val >> current_shift) & mask
+                
             result[b.name] = val
             current_shift += b.width
         return result, size

@@ -175,9 +175,10 @@ class EnumListModel(QAbstractListModel):
 class EnumItemsModel(QAbstractTableModel):
     HEADERS = ["Name", "Value"]
     
-    def __init__(self, enum_def: EnumDefinition = None, parent=None):
+    def __init__(self, enum_def: EnumDefinition = None, project=None, parent=None):
         super().__init__(parent)
         self.enum_def = enum_def
+        self.project = project
 
     def set_enum(self, enum_def: EnumDefinition):
         self.beginResetModel()
@@ -204,15 +205,21 @@ class EnumItemsModel(QAbstractTableModel):
         item = self.enum_def.items[index.row()]
         if index.column() == 0:
             item.name = value
-        elif index.column() == 1:
-        elif index.column() == 1:
-            # Value: Try int, if fail, keep as string (for str enums)
-            # Or should we check message mode? 
-            # Ideally we support both. Mixed types in one enum are rare but Python allows active_configs filtering.
+        if index.column() == 1:
             try:
-                item.value = int(value)
+                is_string_mode = False
+                if self.project:
+                    is_string_mode = getattr(self.project, 'protocol_mode', 'binary') == 'string'
+                
+                if is_string_mode:
+                    # STRICT STRING MODE: Value must be string
+                    item.value = str(value)
+                else:
+                    # STRICT BINARY MODE: Value must be int
+                    item.value = int(value)
             except ValueError:
-                item.value = str(value)
+                # If int conversion fails in binary mode, reject
+                return False
         self.dataChanged.emit(index, index, [role])
         return True
 

@@ -5,7 +5,28 @@ from PySide6.QtWidgets import (
 from telemetry_studio.qt_models import EnumListModel, EnumItemsModel
 from telemetry_studio.data_models import ProjectDefinition
 from telemetry_studio.widgets.checkable_combo import CheckableComboBox
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QStyledItemDelegate, QLineEdit, QSpinBox
+from PySide6.QtCore import Qt
+
+class EnumItemDelegate(QStyledItemDelegate):
+    def __init__(self, project_def, parent=None):
+        super().__init__(parent)
+        self.project = project_def
+        
+    def createEditor(self, parent, option, index):
+        if index.column() == 1: # Value Column
+            # User request: Always use generic text input, handle conversion in backend/model.
+            return QLineEdit(parent)
+        return super().createEditor(parent, option, index)
+    
+    def setEditorData(self, editor, index):
+        # Default behavior is fine, but ensures lineEdit gets text
+        super().setEditorData(editor, index)
+    
+    def setModelData(self, editor, model, index):
+        # Validate for SpinBox happens automatically.
+        # For LineEdit, model.setData handles validation (e.g. strict types)
+        super().setModelData(editor, model, index)
 
 class EnumManagerView(QWidget):
     def __init__(self, project_def: ProjectDefinition, parent=None):
@@ -48,9 +69,13 @@ class EnumManagerView(QWidget):
         right_layout.addLayout(props_layout)
         
         self.items_table = QTableView()
-        self.items_model = EnumItemsModel()
+        self.items_model = EnumItemsModel(project=self.project)
+        self.items_table.setModel(self.items_model)
         self.items_table.setModel(self.items_model)
         self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # Custom Delegate
+        self.items_delegate = EnumItemDelegate(self.project, self.items_table)
+        self.items_table.setItemDelegate(self.items_delegate)
         
         r_btn_layout = QHBoxLayout()
         add_item_btn = QPushButton("Add Item")
