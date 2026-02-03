@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load: {e}")
 
     def open_protocol_config(self):
-        dlg = ProtocolSettingsDialog(self)
+        dlg = ProtocolSettingsDialog(self, self.project)
         if dlg.exec():
             dlg.apply_settings()
             QMessageBox.information(self, "Settings", "Protocol settings updated.")
@@ -172,18 +172,22 @@ class MainWindow(QMainWindow):
             if ret == QMessageBox.No:
                 return
 
-        dlg = ModeSelectionDialog(self, self.project.protocol_mode)
+        current_endian = getattr(self.project, 'global_endianness', 'Little')
+        dlg = ModeSelectionDialog(self, self.project.protocol_mode, current_endian)
         if dlg.exec():
             selected_mode = dlg.selected_mode
+            selected_endian = dlg.selected_endian
             
             # Reset Project
             self.project = ProjectDefinition(protocol_mode=selected_mode)
+            self.project.global_endianness = selected_endian
             
             # Refresh All Views
             self.msg_list_model.project = self.project # Update ref
             self.msg_list_model.modelReset.emit() # Signal reset
             
             self.editor_view.project_context = self.project
+            self.editor_view.refresh_view()
             self.editor_view.set_message(None)
             
             # Enums/SPL

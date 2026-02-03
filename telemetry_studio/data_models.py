@@ -29,6 +29,7 @@ class MessageDefinition:
     fields: List[FieldDefinition] = field(default_factory=list)
     active_configs: List[str] = field(default_factory=list) # List of SPL names this message belongs to (empty=ALL)
     protocol_mode: str = "binary" # "binary" or "string"
+    endianness: str = "Inherit" # Inherit, Little, Big
 
 @dataclass
 class ProjectDefinition:
@@ -36,3 +37,4 @@ class ProjectDefinition:
     enums: List[EnumDefinition] = field(default_factory=list)
     spl_configs: List[SPLDefinition] = field(default_factory=list) # Global list of SPL tags
     protocol_mode: str = "binary" # "binary" or "string"
+    global_endianness: str = "Little" # Little, Big

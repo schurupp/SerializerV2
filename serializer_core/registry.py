@@ -127,7 +127,7 @@ class Registry:
         p_cfg = ProtocolConfig.get()
         start_sym = p_cfg.START_SYMBOL.encode('utf-8')
         
-        if data.startswith(start_sym):
+        if len(data) >= len(start_sym) and data[0:len(start_sym)] == start_sym:
             return cls.deserialize_string(data)
             
         target_config = message_set if message_set else cls._active_system_config
@@ -175,6 +175,10 @@ class Registry:
     @classmethod
     def deserialize_string(cls, data: bytes) -> Tuple[Any, int]:
         from .protocols import ProtocolConfig
+        # memoryview fix for .index()
+        if isinstance(data, memoryview):
+            data = bytes(data)
+            
         cfg = ProtocolConfig.get()
         # Ensure delimiters are loaded
         delim_id = cfg.DELIM_ID
@@ -191,6 +195,8 @@ class Registry:
             
             # Extract content (excluding START, but including everything else up to END)
             content_bytes = data[s_idx + len(start_sym) : e_idx]
+            if isinstance(content_bytes, memoryview):
+                content_bytes = bytes(content_bytes)
             content = content_bytes.decode('utf-8')
             
             # Parse Header strictly: <MSG_ID><DELIM_ID><CMD_TYPE><DELIM_TYPE><CMD><DELIM_CMD>

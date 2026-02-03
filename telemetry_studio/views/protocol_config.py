@@ -4,10 +4,11 @@ from PySide6.QtWidgets import (
 from serializer_core.protocols import ProtocolConfig
 
 class ProtocolSettingsDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, project=None):
         super().__init__(parent)
-        self.setWindowTitle("String Protocol Settings")
+        self.setWindowTitle("Project Settings")
         
+        self.project = project
         self.config = ProtocolConfig.get()
         
         self.layout = QVBoxLayout(self)
@@ -30,7 +31,19 @@ class ProtocolSettingsDialog(QDialog):
         self.form.addRow("CMD Type Delimiter", self.delim_type)
         self.form.addRow("CMD Delimiter", self.delim_cmd)
         self.form.addRow("Field Delimiter", self.delim_field)
+        self.form.addRow("Field Delimiter", self.delim_field)
         self.form.addRow(self.use_checksum)
+        
+        # Global Endianness
+        if self.project and self.project.protocol_mode != 'string':
+             from PySide6.QtWidgets import QComboBox, QLabel
+             self.endian_combo = QComboBox()
+             self.endian_combo.addItems(["Little", "Big"])
+             current = getattr(self.project, 'global_endianness', 'Little')
+             self.endian_combo.setCurrentText(current)
+             self.form.addRow("Global Endianness", self.endian_combo)
+        else:
+             self.endian_combo = None
         
         self.layout.addLayout(self.form)
         
@@ -49,3 +62,6 @@ class ProtocolSettingsDialog(QDialog):
             delim_field=self.delim_field.text(),
             use_checksum=self.use_checksum.isChecked()
         )
+        
+        if self.project and self.endian_combo:
+            self.project.global_endianness = self.endian_combo.currentText()

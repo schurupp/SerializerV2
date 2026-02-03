@@ -52,6 +52,30 @@
 
 
 
+16- Mesajlar için de ayrı bir endianess ayarlama yeri olmalı ve fieldlara da otomatik bir endianness seçimi olmamalı. Kullanıcı eğer field için bir şey girmişse o field için o endianness kullanılmalı ama bir seçim yapılmamış fieldlar mesajlarınınkini kullanmalı ayrıca tüm mesajları kapsayan genel bir session endiannessi de olmalı ve bir seçim yapmamış tüm mesaj ve fiedlar bu endianı kullanmalı. Bu sebeplerle sadece session için seçilmeden default bir endian değeri olması yeterli.
+
+17-Dümdüz basit bir mesajı şu an serialize edemedim bile çünkü şu hatayı verdi:
+
+obj, consumed = Registry.deserialize(view, message\_set=message\_set)
+
+if data.startswith(start\_sym):
+
+Attribute error: 'memoryview' object has no attribute 'startswith'
+
+Bu hatayı startswith kullanmak yerine slice kullanarak çözdüm ancak bunun iyi bir çözüm olup olmayacağıyla ilgili assertion lazım
+
+18- mesajlar için bir \_\_repr\_\_ tarzı method tanımlansa güzel olur yoksa dümdüz bir mesajı print edemiyoruz ve onun yerine tek tek fieldlarını iterate etmek gerekiyor
+
+20- StringMesajları için bulunan default discriminator fieldlar UI'da discriminator paneline gelmiyor. Ayrıca export edilen python kodunda bunlar discriminator fieldlar gibi flaglanmamış oluyorlar ve UI'da bunları discriminator olarak flaglama seçeneği de çıkmıyor. Bu sebeplerden de kaynaklanabileceğini düşünmemle beraber test\_string\_protocol\_generated.py UI'da generate edilmiş string mesajları için deserialize işlemini yapamadı.
+
+
+
+19- EnumField'lara endianness girilebilmesi gerekiyor
+
+
+
+
+
 
 
 

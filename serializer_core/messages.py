@@ -19,6 +19,13 @@ class Message:
             else:
                  setattr(self, name, None)
 
+    def __repr__(self):
+        parts = []
+        for name in self.fields.keys():
+            val = getattr(self, name, None)
+            parts.append(f"{name}={repr(val)}")
+        return f"{self.__class__.__name__}({', '.join(parts)})"
+
     def serialize(self) -> bytes:
         from . import checksums
         import time
@@ -227,6 +234,15 @@ def register(cls_or_none=None, *, system_config_id: str = None):
         fields = {k: v for k, v in cls.__dict__.items() if isinstance(v, Field)}
         cls.fields = fields
         cls._active_configs = [system_config_id] if system_config_id else []
+        
+        # 1b. Resolve Hierarchical Endianness
+        # Default to Little Endian if not specified or 'Inherit' (Root Default)
+        msg_endian = getattr(cls, 'endianness', '<')
+        if msg_endian not in ('<', '>'):
+            msg_endian = '<'
+            
+        for f in fields.values():
+            f.resolve_endianness(msg_endian)
         
         # 2. Build Packing Plan
         plan = []

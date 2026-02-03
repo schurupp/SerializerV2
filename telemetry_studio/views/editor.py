@@ -58,6 +58,7 @@ class MessageEditorView(QWidget):
         
         self.disc_table = QTableWidget(0, 2)
         self.disc_table.setHorizontalHeaderLabels(["Field", "Value (Hex)"])
+        self.disc_table.itemChanged.connect(self.on_disc_changed)
         disc_layout.addWidget(self.disc_table)
         
         # Message Configs
@@ -67,9 +68,28 @@ class MessageEditorView(QWidget):
         # Populate later based on project SPL configs
         self.msg_configs.model().dataChanged.connect(self.on_config_changed)
         config_layout.addWidget(self.msg_configs)
+        config_layout.addStretch()
+        
+        # Endianness
+        # Endianness
+        self.endian_widget = QWidget()
+        endian_layout = QVBoxLayout(self.endian_widget)
+        endian_layout.setContentsMargins(0, 0, 0, 0)
+        endian_layout.addWidget(QLabel("Endianness:"))
+        self.endian_combo = QComboBox()
+        self.endian_combo.addItems(["Inherit", "Little", "Big"])
+        self.endian_combo.currentTextChanged.connect(self.on_endian_changed)
+        endian_layout.addWidget(self.endian_combo)
+        endian_layout.addStretch()
+        
+        # Hide if String Mode
+        if self.project_context.protocol_mode == 'string':
+            self.endian_widget.setVisible(False)
         
         self.header_layout.addLayout(disc_layout)
         self.header_layout.addLayout(config_layout)
+        self.header_layout.addWidget(self.endian_widget)
+        
         self.layout.addLayout(self.header_layout)
         
         # 2. Main Editor Toolbar
@@ -123,22 +143,76 @@ class MessageEditorView(QWidget):
         if self.current_msg.active_configs:
             self.msg_configs.setCheckedItems(self.current_msg.active_configs)
             
+        if self.current_msg.active_configs:
+            self.msg_configs.setCheckedItems(self.current_msg.active_configs)
+            
         self.msg_configs.blockSignals(False)
+        
+        # Endianness
+        self.endian_combo.blockSignals(True)
+        end = getattr(self.current_msg, 'endianness', 'Inherit')
+        self.endian_combo.setCurrentText(end if end else 'Inherit')
+        self.endian_combo.blockSignals(False)
                 
         # Discriminators
+        # Discriminators
+        self.disc_table.blockSignals(True)
         self.disc_table.setRowCount(0)
         row = 0
+        
+        # In String Mode, cmd_type and cmd_str ARE discriminators
+        is_string_mode = False
+        if self.project_context.protocol_mode == "string":
+             # Or check message override if we had one, but we use strict global mode for now
+             is_string_mode = True
+             
         for f in self.current_msg.fields:
-            if f.options.get("is_discriminator"):
+            is_disc = f.options.get("is_discriminator")
+            if is_string_mode and f.name in ["cmd_type", "cmd_str"]:
+                is_disc = True
+                f.options["is_discriminator"] = True # Ensure consistency
+                
+            if is_disc:
                 self.disc_table.insertRow(row)
-                self.disc_table.setItem(row, 0, QTableWidgetItem(f.name))
+                item_name = QTableWidgetItem(f.name)
+                item_name.setFlags(item_name.flags() ^ Qt.ItemIsEditable) # Name Read-only
+                self.disc_table.setItem(row, 0, item_name)
+                
                 val = f.options.get("default", 0)
-                self.disc_table.setItem(row, 1, QTableWidgetItem(hex(val) if isinstance(val, int) else str(val)))
+                val_str = str(val)
+                if isinstance(val, int) and not is_string_mode:
+                    val_str = hex(val)
+                    
+                self.disc_table.setItem(row, 1, QTableWidgetItem(val_str))
                 row += 1
+        self.disc_table.blockSignals(False)
+
+    def on_disc_changed(self, item: QTableWidgetItem):
+        if item.column() != 1: return
+        row = item.row()
+        field_name = self.disc_table.item(row, 0).text()
+        
+        # Find field
+        field = next((f for f in self.current_msg.fields if f.name == field_name), None)
+        if field:
+            val_str = item.text()
+            # Try parse int if binary mode
+            if self.project_context.protocol_mode != "string":
+                try:
+                    val = int(val_str, 0)
+                    field.options["default"] = val
+                except ValueError:
+                    pass # Ignore invalid input
+            else:
+                 field.options["default"] = val_str
 
     def on_config_changed(self):
         if not self.current_msg: return
         self.current_msg.active_configs = self.msg_configs.checkedItems()
+
+    def on_endian_changed(self, text):
+        if not self.current_msg: return
+        self.current_msg.endianness = text
 
     def add_field(self):
         if self.model: self.model.add_field()
@@ -198,3 +272,9 @@ class MessageEditorView(QWidget):
                 self.refresh_header()
                 index = self.model.index(row, 2)
                 self.model.dataChanged.emit(index, index, [Qt.DisplayRole])
+
+    def refresh_view(self):
+        """Updates UI elements based on current project mode."""
+        if not self.project_context: return
+        is_string = self.project_context.protocol_mode == 'string'
+        self.endian_widget.setVisible(not is_string)

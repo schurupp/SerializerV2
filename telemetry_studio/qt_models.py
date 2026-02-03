@@ -74,6 +74,7 @@ class FieldTableModel(QAbstractTableModel):
         return None
         
     def add_field(self):
+        if self.msg_def is None: return
         self.beginInsertRows(QModelIndex(), len(self.msg_def.fields), len(self.msg_def.fields))
         self.msg_def.fields.append(FieldDefinition())
         self.endInsertRows()
@@ -124,8 +125,8 @@ class MessageListModel(QAbstractListModel):
         if getattr(self.project, 'protocol_mode', 'binary') == 'string':
             msg.protocol_mode = 'string'
             # Auto-add mandatory fields
-            msg.fields.append(FieldDefinition(name="cmd_type", field_type="String", options={'default': "CMD"}))
-            msg.fields.append(FieldDefinition(name="cmd_str", field_type="String", options={'default': "SUB"}))
+            msg.fields.append(FieldDefinition(name="cmd_type", field_type="String", options={'default': "CMD", 'size_mode': 'Dynamic'}))
+            msg.fields.append(FieldDefinition(name="cmd_str", field_type="String", options={'default': "SUB", 'size_mode': 'Dynamic'}))
             
         self.project.messages.append(msg)
         self.endInsertRows()
@@ -204,10 +205,14 @@ class EnumItemsModel(QAbstractTableModel):
         if index.column() == 0:
             item.name = value
         elif index.column() == 1:
+        elif index.column() == 1:
+            # Value: Try int, if fail, keep as string (for str enums)
+            # Or should we check message mode? 
+            # Ideally we support both. Mixed types in one enum are rare but Python allows active_configs filtering.
             try:
                 item.value = int(value)
-            except:
-                return False
+            except ValueError:
+                item.value = str(value)
         self.dataChanged.emit(index, index, [role])
         return True
 
