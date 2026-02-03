@@ -5,18 +5,35 @@ class CodeGenerator:
         self.project = project
 
     def generate_enums(self, target_config: str = None) -> str:
-        lines = ["from enum import IntEnum", "", ""]
+        lines = ["from enum import IntEnum, Enum", "", ""]
         for enum_def in self.project.enums:
             # SPL Filtering
             if target_config and enum_def.active_configs:
                 if target_config not in enum_def.active_configs:
                     continue
                     
-            lines.append(f"class {enum_def.name}(IntEnum):")
+            # Determine base class based on value types
+            base_cls = "IntEnum"
+            is_string_enum = False
+            for item in enum_def.items:
+                if isinstance(item.value, str) and not item.value.isdigit():
+                    base_cls = "Enum" # Generic Enum, or str, Enum
+                    is_string_enum = True
+                    break
+            
+            if is_string_enum:
+                 lines.append(f"class {enum_def.name}(str, Enum):")
+            else:
+                 lines.append(f"class {enum_def.name}(IntEnum):")
+                 
             if not enum_def.items:
                 lines.append("    pass")
+                
             for item in enum_def.items:
-                lines.append(f"    {item.name} = {item.value}")
+                val = item.value
+                if is_string_enum:
+                    val = f"'{val}'"
+                lines.append(f"    {item.name} = {val}")
             lines.append("")
         return "\n".join(lines)
 
@@ -44,6 +61,21 @@ class CodeGenerator:
             if getattr(msg, 'protocol_mode', 'binary') == 'string':
                  lines.append(f'    protocol_mode = "string"')
             
+            # Endianness Resolution
+            # Global Default (from Project)
+            global_end = getattr(self.project, 'global_endianness', 'Little')
+            # Message Override
+            msg_end = getattr(msg, 'endianness', 'Inherit')
+            
+            final_end = '<' # Default Little
+            if msg_end == 'Big': final_end = '>'
+            elif msg_end == 'Little': final_end = '<'
+            else: # Inherit
+                if global_end == 'Big': final_end = '>'
+                else: final_end = '<'
+            
+            lines.append(f"    endianness = '{final_end}'")
+            
             if not msg.fields:
                 lines.append("    pass")
             
@@ -57,6 +89,12 @@ class CodeGenerator:
                 }
                 backend_type = ftype_map.get(field.field_type, field.field_type)
                 
+                # Force is_discriminator for command fields in String Mode
+                is_string_mode = getattr(msg, 'protocol_mode', 'binary') == 'string'
+                if is_string_mode and field.name in ['cmd_type', 'cmd_str']:
+                   if not field.options.get('is_discriminator'):
+                       field.options['is_discriminator'] = True
+
                 opts_str = self._format_options(field)
                 lines.append(f"    {field.name} = {backend_type}({opts_str})")
             
@@ -106,6 +144,10 @@ class CodeGenerator:
         if field.field_type == "String":
              if opts.get("size_mode") == "Dynamic":
                  if "length" in opts: del opts["length"]
+             else: # Fixed
+                 if "length" not in opts:
+                     opts["length"] = 10 # Safer default than 0
+             
              if opts.get("encoding") == "utf-8":
                  del opts["encoding"]
 
@@ -113,7 +155,7 @@ class CodeGenerator:
         for k, v in opts.items():
             if k in exclude_keys: continue
             if k == "count_field" and opts.get("mode") == "Fixed": continue
-            if k == "byte_order" and v == "<": continue # Skip default Little Endian
+            if k == "byte_order" and v in [None, "Inherit"]: continue
             
             if isinstance(v, str):
                 args.append(f"{k}='{v}'")

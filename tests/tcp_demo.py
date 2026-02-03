@@ -9,11 +9,10 @@ import random
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from serializer_core import *
-from Messages import *
 
 # Reuse TestMessage from integration test or define simple one
 @register
-class SimpleMsg(Message):
+class TestMsg(Message):
     # Discriminator required for StreamHandler/Registry auto-detection
     disc = UInt8(is_discriminator=True, default=0xBB)
     val_a = UInt32()

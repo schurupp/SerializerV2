@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
 )
 
 class ModeSelectionDialog(QDialog):
-    def __init__(self, parent=None, current_mode="binary"):
+    def __init__(self, parent=None, current_mode="binary", current_endian="Little"):
         super().__init__(parent)
         self.setWindowTitle("Select Protocol Mode")
         self.resize(300, 150)
@@ -28,7 +28,21 @@ class ModeSelectionDialog(QDialog):
             self.rb_binary.setChecked(True)
             
         layout.addWidget(self.rb_binary)
+        layout.addWidget(self.rb_binary)
         layout.addWidget(self.rb_string)
+
+        self.endian_combo = None
+        if current_mode != 'string':
+            # Endianness option (only relevant for binary-ish, though actually relevant for mixed too)
+            layout.addWidget(QLabel("Global Default Endianness:"))
+            from PySide6.QtWidgets import QComboBox
+            self.endian_combo = QComboBox()
+            self.endian_combo.addItems(["Little", "Big"])
+            self.endian_combo.setCurrentText(current_endian)
+            layout.addWidget(self.endian_combo)
+            
+            # Disable if string mode selected
+            self.rb_string.toggled.connect(lambda c: self.endian_combo.setDisabled(c))
         
         layout.addWidget(QLabel("<i>Note: Switching mode will reset the current project.</i>"))
         
@@ -42,4 +56,10 @@ class ModeSelectionDialog(QDialog):
             self.selected_mode = 'string'
         else:
             self.selected_mode = 'binary'
+            
+        if self.endian_combo and self.endian_combo.isEnabled():
+            self.selected_endian = self.endian_combo.currentText()
+        else:
+            self.selected_endian = "Little"
+            
         super().accept()

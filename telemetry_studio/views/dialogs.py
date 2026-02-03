@@ -191,6 +191,11 @@ class StringConfigDialog(BaseConfigDialog):
         self.form.addRow("Size Mode", self.mode)
         self.form.addRow("Length (Fixed)", self.length)
         self.form.addRow("Encoding", self.encoding)
+
+        self.is_discriminator = QCheckBox("Is Discriminator")
+        if current_options.get("is_discriminator"):
+            self.is_discriminator.setChecked(True)
+        self.form.addRow(self.is_discriminator)
         
     def get_options(self):
         opts = self.get_base_options()
@@ -198,7 +203,8 @@ class StringConfigDialog(BaseConfigDialog):
             "default": self.default_val.text(),
             "size_mode": self.mode.currentText(),
             "length": self.length.value(),
-            "encoding": self.encoding.currentText()
+            "encoding": self.encoding.currentText(),
+            "is_discriminator": self.is_discriminator.isChecked()
         })
         return opts
 
@@ -400,7 +406,7 @@ class EnumConfigDialog(BaseConfigDialog):
         
         self.default_combo = QComboBox()
         self.storage_type = QComboBox()
-        self.storage_type.addItems(["UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32"])
+        self.storage_type.addItems(["UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32", "String"])
         
         cur = current_options.get("enum_name")
         if cur: 
@@ -408,6 +414,15 @@ class EnumConfigDialog(BaseConfigDialog):
         
         st_type = current_options.get("storage_type", "UInt8")
         self.storage_type.setCurrentText(st_type)
+
+        # Byte Order
+        self.byte_order = QComboBox()
+        self.byte_order.addItems(["Inherit", "Little Endian (<)", "Big Endian (>)"])
+        
+        cur_byte_order = current_options.get("byte_order", "Inherit")
+        if cur_byte_order == "<": self.byte_order.setCurrentIndex(1)
+        elif cur_byte_order == ">": self.byte_order.setCurrentIndex(2)
+        else: self.byte_order.setCurrentIndex(0) # Inherit
 
         # Trigger populate
         self.on_enum_changed(self.combo.currentText())
@@ -419,7 +434,14 @@ class EnumConfigDialog(BaseConfigDialog):
              
         self.form.addRow("Select Enum", self.combo)
         self.form.addRow("Default Value", self.default_combo)
+        self.form.addRow("Default Value", self.default_combo)
         self.form.addRow("Storage Type", self.storage_type)
+        self.form.addRow("Byte Order", self.byte_order)
+        
+        self.is_discriminator = QCheckBox("Is Discriminator")
+        if current_options.get("is_discriminator"):
+            self.is_discriminator.setChecked(True)
+        self.form.addRow(self.is_discriminator)
         
     def on_enum_changed(self, name):
         self.default_combo.clear()
@@ -439,6 +461,14 @@ class EnumConfigDialog(BaseConfigDialog):
         opts["enum_name"] = self.combo.currentText()
         opts["default"] = self.default_combo.currentData()
         opts["storage_type"] = self.storage_type.currentText()
+        opts["is_discriminator"] = self.is_discriminator.isChecked()
+        
+        idx = self.byte_order.currentIndex()
+        if idx == 1: opts["byte_order"] = "<"
+        elif idx == 2: opts["byte_order"] = ">"
+        else:
+             if "byte_order" in opts: del opts["byte_order"] # Inherit
+             
         return opts
 
 class ArrayConfigDialog(BaseConfigDialog):

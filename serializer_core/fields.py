@@ -14,7 +14,7 @@ class Field(ABC):
         is_discriminator: bool = False,
         is_checksum: bool = False,
         is_timestamp: bool = False,
-        byte_order: str = '<', # < Little Endian, > Big Endian
+        byte_order: Optional[str] = None, # None=Inherit, < Little, > Big
         **kwargs
     ):
         self.default = default
@@ -31,6 +31,16 @@ class Field(ABC):
     def validate(self, value: Any) -> Any:
         # Refinement: No more min/max validation
         return value
+
+    def resolve_endianness(self, default_endian: str):
+        """Called by Message during registration if byte_order is Inherit."""
+        if self.byte_order is None:
+            self.byte_order = default_endian
+            self._on_endian_resolved()
+
+    def _on_endian_resolved(self):
+        """Hook for subclasses to rebuild structs."""
+        pass
 
     @abstractmethod
     def to_bytes(self, value: Any) -> bytes:
@@ -56,8 +66,17 @@ class PrimitiveField(Field):
         self.fmt_char = fmt_char
         self.resolution = kwargs.get('resolution', 's') # s or ms
         # Construct format with endianness
-        self.struct_format = f"{self.byte_order}{fmt_char}"
-        self._struct = struct.Struct(self.struct_format)
+        if self.byte_order:
+            self.struct_format = f"{self.byte_order}{fmt_char}"
+            self._struct = struct.Struct(self.struct_format)
+        else:
+            self.struct_format = ""
+            self._struct = None
+
+    def _on_endian_resolved(self):
+        if self.byte_order:
+            self.struct_format = f"{self.byte_order}{self.fmt_char}"
+            self._struct = struct.Struct(self.struct_format)
 
     def to_bytes(self, value: Any) -> bytes:
         if self.is_timestamp:
@@ -164,15 +183,32 @@ class EnumField(Field):
         self.storage_type = storage_type
         
         # Map storage type string to Primitive class
+        # Map storage type string to Primitive class
         type_map = {
             "UInt8": UInt8, "Int8": Int8,
             "UInt16": UInt16, "Int16": Int16,
-            "UInt32": UInt32, "Int32": Int32
+            "UInt32": UInt32, "Int32": Int32,
+            "String": StringField # Use StringField backend
         }
-        base_cls = type_map.get(storage_type, UInt8)
+        if storage_type == "String":
+             # Initialize with StringField defaults, can be overridden by kwargs like length/encoding
+             # Enforce Dynamic check? Or accept constraints?
+             # For now just init.
+             base_cls = StringField
+             # If using String backend, default to Dynamic if not specified? 
+             # kwargs usually come from generated code which should have right options
+        else:
+             base_cls = type_map.get(storage_type, UInt8)
+             
         self.base_field = base_cls(**kwargs)
-        self.struct_format = self.base_field.struct_format
-        self._struct = self.base_field._struct
+        self.base_field = base_cls(**kwargs)
+        self.struct_format = getattr(self.base_field, 'struct_format', None)
+        self._struct = getattr(self.base_field, '_struct', None)
+
+    def _on_endian_resolved(self):
+        self.base_field.resolve_endianness(self.byte_order)
+        self.struct_format = getattr(self.base_field, 'struct_format', None)
+        self._struct = getattr(self.base_field, '_struct', None)
 
     def to_bytes(self, value: Any) -> bytes:
         if value is None and self.default is not None:
@@ -221,19 +257,29 @@ class FixedPointField(Field):
         self.scale = 1 << fractional_bits
         
         # Backing Primitive
-        byte_order = kwargs.get('byte_order', '<')
+        if self.byte_order:
+             self._create_struct()
+        else:
+             self.struct_format = ""
+             self._struct = None
+
+    def _on_endian_resolved(self):
+        self._create_struct()
+
+    def _create_struct(self):
         if self.total_bits <= 8:
-            fmt = 'b' if encoding == 1 else 'B'
+            fmt = 'b' if self.encoding == 1 else 'B'
         elif self.total_bits <= 16:
-            fmt = 'h' if encoding == 1 else 'H'
+            fmt = 'h' if self.encoding == 1 else 'H'
         elif self.total_bits <= 32:
-            fmt = 'i' if encoding == 1 else 'I'
+            fmt = 'i' if self.encoding == 1 else 'I'
         elif self.total_bits <= 64:
-            fmt = 'q' if encoding == 1 else 'Q'
+            fmt = 'q' if self.encoding == 1 else 'Q'
         else:
             raise ValueError("Too many bits for standard primitive backing")
             
-        self.struct_format = f"{byte_order}{fmt}"
+        self.struct_format = f"{self.byte_order}{fmt}"
+        self._struct = struct.Struct(self.struct_format)
         self._struct = struct.Struct(self.struct_format)
 
     def to_bytes(self, value: float) -> bytes:
