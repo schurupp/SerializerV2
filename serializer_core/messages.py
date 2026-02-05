@@ -87,6 +87,8 @@ class Message:
                         if res == 'ms':
                             t *= 1000
                         val = int(t)
+                        # Sync object state
+                        setattr(self, name, val)
                     
                     # Normal packing logic
                     else:
@@ -150,6 +152,8 @@ class Message:
                     # Pack into buffer
                     if hasattr(field, '_struct'):
                         field._struct.pack_into(buffer, offset, calc_len)
+                        # Sync object state
+                        setattr(self, name, calc_len)
                         
         # 2b. Apply Checksums
         for patch in checksum_patches:
@@ -184,6 +188,8 @@ class Message:
                          # PrimitiveField has _struct.
                          if hasattr(field, '_struct'):
                              field._struct.pack_into(buffer, offset, result)
+                             # Sync object state
+                             setattr(self, name, result)
                          else:
                              print(f"Warning: Checksum field {name} is not a PrimitiveField. Cannot pack result.")
             

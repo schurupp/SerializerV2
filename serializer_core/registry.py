@@ -61,30 +61,34 @@ class Registry:
         disc_offset = 0
         found_disc = False
         
+        offset_valid = True
+        
         for name, field in msg_cls.fields.items():
             if field.is_discriminator:
                 if field.default is None:
                     raise ValueError(f"Message {msg_cls.__name__} discriminator field '{name}' must have a default value.")
+                
+                if not offset_valid:
+                    raise ValueError(f"Cannot calculate offset for discriminator '{name}' in {msg_cls.__name__}. Preceding fields contain dynamic or unknown sizes.")
+                
                 disc_value = field.default
                 found_disc = True
                 break
             
-            # Add size of preceding field
-            # Must be fixed size!
-            try:
-                # Use struct size if available
-                if field.struct_format:
-                    s = struct.Struct(field.struct_format) # Use cached if possible? Field usually caches it.
-                    disc_offset += s.size
-                elif hasattr(field, '_struct') and field._struct:
-                     disc_offset += field._struct.size
-                else:
-                    # Complex generic? 
-                    # If it's a fixed array of complex items, we might support it if we implement size property?
-                    # For now, if no struct_format, assume dynamic/unknown -> fail.
-                    raise ValueError(f"Field '{name}' preceding discriminator in {msg_cls.__name__} must be fixed size.")
-            except Exception as e:
-                 raise ValueError(f"Cannot calculate offset for discriminator in {msg_cls.__name__}. Preceding field '{name}' is dynamic or unknown size: {e}")
+            # Add size of preceding field if valid
+            if offset_valid:
+                try:
+                    # Use struct size if available
+                    if field.struct_format:
+                        s = struct.Struct(field.struct_format)
+                        disc_offset += s.size
+                    elif hasattr(field, '_struct') and field._struct:
+                        disc_offset += field._struct.size
+                    else:
+                        # Complex/Dynamic -> Invalid offset tracking
+                        offset_valid = False
+                except Exception:
+                    offset_valid = False
 
         if found_disc and disc_value is not None:
              # Store in main dict (disc -> cls) - Note: Disc collision with diff offsets?
