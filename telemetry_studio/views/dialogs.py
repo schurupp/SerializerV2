@@ -89,9 +89,17 @@ class PrimitiveConfigDialog(BaseConfigDialog):
         }
         
         # Exclusive Logic
+        # Exclusive Logic
         self.checks["is_checksum"].toggled.connect(lambda c: self.on_exclusive_toggled("is_checksum", c))
         self.checks["is_length"].toggled.connect(lambda c: self.on_exclusive_toggled("is_length", c))
         self.checks["is_timestamp"].toggled.connect(lambda c: self.on_exclusive_toggled("is_timestamp", c))
+        self.checks["is_discriminator"].toggled.connect(lambda c: self.on_exclusive_toggled("is_discriminator", c))
+        
+        # Float Restrictions
+        if "Float" in field_type or "Double" in field_type:
+            for k in ["is_checksum", "is_length", "is_timestamp"]:
+                self.checks[k].setChecked(False)
+                self.checks[k].setEnabled(False)
         
         self.form.addRow("Default Value", self.default_val)
         
@@ -144,15 +152,17 @@ class PrimitiveConfigDialog(BaseConfigDialog):
     
     def on_exclusive_toggled(self, name, checked):
         if not checked: return
-        if name == "is_checksum":
-            self.checks["is_timestamp"].setChecked(False)
-            self.checks["is_length"].setChecked(False)
-        elif name == "is_timestamp":
-            self.checks["is_checksum"].setChecked(False)
-            self.checks["is_length"].setChecked(False)
-        elif name == "is_length":
-            self.checks["is_checksum"].setChecked(False)
-            self.checks["is_timestamp"].setChecked(False)
+        
+        smart_fields = ["is_checksum", "is_timestamp", "is_length"]
+        
+        if name == "is_discriminator":
+            for f in smart_fields:
+                self.checks[f].setChecked(False)
+        elif name in smart_fields:
+            self.checks["is_discriminator"].setChecked(False)
+            # Mutual exclusion among smart fields
+            for f in smart_fields:
+                if f != name: self.checks[f].setChecked(False)
 
     def get_options(self):
         opts = self.get_base_options()
@@ -470,8 +480,17 @@ class EnumConfigDialog(BaseConfigDialog):
         self.form.addRow("Byte Order", self.byte_order)
         
         self.is_discriminator = QCheckBox("Is Discriminator")
+        # Rule: Enum cannot be Discriminator (Issue #20)
+        # self.is_discriminator.setChecked(False)
+        # self.is_discriminator.setEnabled(False)
+        # Or just remove it. Code below keeps it "hidden"/disabled effectively?
         if current_options.get("is_discriminator"):
-            self.is_discriminator.setChecked(True)
+            self.is_discriminator.setChecked(True) # Legacy support? 
+            # Force uncheck? User said "Cannot be".
+            self.is_discriminator.setChecked(False)
+            
+        self.is_discriminator.setEnabled(False)
+        self.is_discriminator.setToolTip("Enum Fields cannot be used as Discriminators.")
         self.form.addRow(self.is_discriminator)
         
     def on_enum_changed(self, name):

@@ -83,6 +83,12 @@ class XMLImporter:
         if msg_endian_str:
             msg_endian = 'Big' if msg_endian_str.lower() == 'big' else 'Little'
             
+        # Variants (SPL)
+        variants_str = msg_node.get("Variants", "")
+        spl_tags = []
+        if variants_str:
+             spl_tags = [v.strip() for v in variants_str.split(',') if v.strip()]
+            
         # Parse Children
         fields = []
         
@@ -127,7 +133,8 @@ class XMLImporter:
         msg_def = MessageDefinition(
             name=full_name,
             fields=fields,
-            endianness=msg_endian # Optional field in MessageDefinition?
+            endianness=msg_endian,
+            active_configs=spl_tags
         )
         # Note: MessageDefinition might need 'endianness' attribute update if not present.
         # It currently has fields. It is a dataclass.

@@ -90,3 +90,9 @@ class CheckableComboBox(QComboBox):
             else:
                 item.setCheckState(Qt.Unchecked)
         self.update_display_text()
+
+    def clearChecked(self):
+        """Unchecks all items"""
+        for i in range(self.model_.rowCount()):
+            self.model_.item(i).setCheckState(Qt.Unchecked)
+        self.update_display_text()
