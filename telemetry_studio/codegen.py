@@ -95,14 +95,14 @@ class CodeGenerator:
                    if not field.options.get('is_discriminator'):
                        field.options['is_discriminator'] = True
 
-                opts_str = self._format_options(field)
+                opts_str = self._format_options(field, getattr(msg, 'protocol_mode', 'binary'))
                 lines.append(f"    {field.name} = {backend_type}({opts_str})")
             
             lines.append("")
         
         return "\n".join(lines)
     
-    def _format_options(self, field: FieldDefinition) -> str:
+    def _format_options(self, field: FieldDefinition, protocol_mode: str = 'binary') -> str:
         args = []
         opts = field.options.copy()
         
@@ -157,7 +157,27 @@ class CodeGenerator:
             if k == "count_field" and opts.get("mode") == "Fixed": continue
             if k == "byte_order" and v in [None, "Inherit"]: continue
             
-            if isinstance(v, str):
+            if k == "default":
+                 # Special handling for Enum defaults
+                 if field.field_type == "Enum":
+                      if protocol_mode == "string":
+                           # String Mode: Default should be string (e.g. 'OK')
+                           args.append(f"{k}='{v}'")
+                      else:
+                           # Binary Mode: Default should be int (e.g. 0)
+                           # If v is a digit string, strip quotes
+                           if str(v).isdigit():
+                                args.append(f"{k}={v}")
+                           else:
+                                # Fallback or already int
+                                args.append(f"{k}={v}")
+                 else:
+                      # Standard default handling
+                      if isinstance(v, str) and not v.isdigit() and v != "True" and v != "False":
+                           args.append(f"{k}='{v}'")
+                      else:
+                           args.append(f"{k}={v}")
+            elif isinstance(v, str):
                 args.append(f"{k}='{v}'")
             else:
                 args.append(f"{k}={v}")

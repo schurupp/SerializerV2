@@ -19,6 +19,7 @@ from telemetry_studio.views.mode_selection import ModeSelectionDialog
 from telemetry_studio.project_io import ProjectIO
 from telemetry_studio.codegen import CodeGenerator
 from telemetry_studio.importer import PythonImporter
+from telemetry_studio.importers.xml_importer import XMLImporter
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -110,6 +111,9 @@ class MainWindow(QMainWindow):
         
         menu.addSeparator()
         
+        act_imp_xml = menu.addAction("Import XML Definition...")
+        act_imp_xml.triggered.connect(self.import_xml)
+        
         act_export = menu.addAction("Export Python Code")
         act_export.triggered.connect(self.export_python)
         
@@ -179,31 +183,48 @@ class MainWindow(QMainWindow):
             selected_endian = dlg.selected_endian
             
             # Reset Project
-            self.project = ProjectDefinition(protocol_mode=selected_mode)
-            self.project.global_endianness = selected_endian
+            new_proj = ProjectDefinition(protocol_mode=selected_mode)
+            new_proj.global_endianness = selected_endian
             
-            # Refresh All Views
-            self.msg_list_model.project = self.project # Update ref
-            self.msg_list_model.modelReset.emit() # Signal reset
+            self._set_active_project(new_proj)
             
-            self.editor_view.project_context = self.project
-            self.editor_view.refresh_view()
-            self.editor_view.set_message(None)
-            
-            # Enums/SPL
-            # We need to update their references too!
-            # They hold 'self.project' reference?
-            # Check views __init__. They store 'project'.
-            
-            self.enum_manager.project = self.project
-            self.enum_manager.list_model.project = self.project
-            self.enum_manager.list_model.modelReset.emit()
-            
-            self.spl_manager.project = self.project
-            self.spl_manager.model.project = self.project
-            self.spl_manager.model.modelReset.emit()
-            
-            self.setWindowTitle(f"Telemetry Studio V2 [{selected_mode.upper()}]")
+    def _set_active_project(self, new_project: ProjectDefinition):
+        self.project = new_project
+        
+        # Refresh All Views
+        self.msg_list_model.project = self.project # Update ref
+        self.msg_list_model.modelReset.emit() # Signal reset
+        
+        self.editor_view.project_context = self.project
+        self.editor_view.refresh_view()
+        self.editor_view.set_message(None)
+        
+        self.enum_manager.project = self.project
+        self.enum_manager.list_model.project = self.project
+        self.enum_manager.items_model.project = self.project 
+        self.enum_manager.list_model.modelReset.emit()
+        
+        self.spl_manager.project = self.project
+        self.spl_manager.model.project = self.project
+        self.spl_manager.model.modelReset.emit()
+        
+        mode = getattr(self.project, 'protocol_mode', 'binary')
+        self.setWindowTitle(f"Telemetry Studio V2 [{mode.upper()}]")
+        
+    def import_xml(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import XML Definition", "", "XML Files (*.xml)")
+        if path:
+            try:
+                 importer = XMLImporter()
+                 new_proj = importer.import_xml(path)
+                 
+                 # Confirm overwrite if current not empty?
+                 # Assuming import replaces session.
+                 self._set_active_project(new_proj)
+                 
+                 QMessageBox.information(self, "Success", f"Imported XML from {path}")
+            except Exception as e:
+                 QMessageBox.critical(self, "Import Error", f"Failed to import XML: {e}")
             
     def export_python(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export Python", "", "Python Files (*.py)")

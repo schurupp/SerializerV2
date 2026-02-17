@@ -31,7 +31,6 @@ class ProtocolSettingsDialog(QDialog):
         self.form.addRow("CMD Type Delimiter", self.delim_type)
         self.form.addRow("CMD Delimiter", self.delim_cmd)
         self.form.addRow("Field Delimiter", self.delim_field)
-        self.form.addRow("Field Delimiter", self.delim_field)
         self.form.addRow(self.use_checksum)
         
         # Global Endianness

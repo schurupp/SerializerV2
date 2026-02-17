@@ -2,6 +2,14 @@ from PySide6.QtCore import QAbstractTableModel, QAbstractListModel, Qt, QModelIn
 from typing import Any, List
 from telemetry_studio.data_models import MessageDefinition, FieldDefinition, ProjectDefinition, EnumDefinition, EnumItem, SPLDefinition
 
+def get_unique_name(base_name: str, existing_names: List[str]) -> str:
+    if base_name not in existing_names:
+        return base_name
+    i = 1
+    while f"{base_name}_{i}" in existing_names:
+        i += 1
+    return f"{base_name}_{i}"
+
 # --- Message Editor Models ---
 
 class FieldTableModel(QAbstractTableModel):
@@ -119,7 +127,11 @@ class MessageListModel(QAbstractListModel):
 
     def add_message(self):
         self.beginInsertRows(QModelIndex(), len(self.project.messages), len(self.project.messages))
-        msg = MessageDefinition("NewMessage")
+        base = "NewMessage"
+        existing = [m.name for m in self.project.messages]
+        name = get_unique_name(base, existing)
+        
+        msg = MessageDefinition(name)
         
         # Check Global Protocol Mode
         if getattr(self.project, 'protocol_mode', 'binary') == 'string':
@@ -164,7 +176,10 @@ class EnumListModel(QAbstractListModel):
 
     def add_enum(self):
         self.beginInsertRows(QModelIndex(), len(self.project.enums), len(self.project.enums))
-        self.project.enums.append(EnumDefinition("NewEnum"))
+        base = "NewEnum"
+        existing = [e.name for e in self.project.enums]
+        name = get_unique_name(base, existing)
+        self.project.enums.append(EnumDefinition(name))
         self.endInsertRows()
         
     def remove_enum(self, row: int):
@@ -175,9 +190,10 @@ class EnumListModel(QAbstractListModel):
 class EnumItemsModel(QAbstractTableModel):
     HEADERS = ["Name", "Value"]
     
-    def __init__(self, enum_def: EnumDefinition = None, parent=None):
+    def __init__(self, enum_def: EnumDefinition = None, project=None, parent=None):
         super().__init__(parent)
         self.enum_def = enum_def
+        self.project = project
 
     def set_enum(self, enum_def: EnumDefinition):
         self.beginResetModel()
@@ -204,15 +220,21 @@ class EnumItemsModel(QAbstractTableModel):
         item = self.enum_def.items[index.row()]
         if index.column() == 0:
             item.name = value
-        elif index.column() == 1:
-        elif index.column() == 1:
-            # Value: Try int, if fail, keep as string (for str enums)
-            # Or should we check message mode? 
-            # Ideally we support both. Mixed types in one enum are rare but Python allows active_configs filtering.
+        if index.column() == 1:
             try:
-                item.value = int(value)
+                is_string_mode = False
+                if self.project:
+                    is_string_mode = getattr(self.project, 'protocol_mode', 'binary') == 'string'
+                
+                if is_string_mode:
+                    # STRICT STRING MODE: Value must be string
+                    item.value = str(value)
+                else:
+                    # STRICT BINARY MODE: Value must be int
+                    item.value = int(value)
             except ValueError:
-                item.value = str(value)
+                # If int conversion fails in binary mode, reject
+                return False
         self.dataChanged.emit(index, index, [role])
         return True
 
@@ -264,7 +286,10 @@ class SPLListModel(QAbstractListModel):
 
     def add_spl(self):
         self.beginInsertRows(QModelIndex(), len(self.project.spl_configs), len(self.project.spl_configs))
-        self.project.spl_configs.append(SPLDefinition("Config_New"))
+        base = "Config_New"
+        existing = [c.name for c in self.project.spl_configs]
+        name = get_unique_name(base, existing)
+        self.project.spl_configs.append(SPLDefinition(name))
         self.endInsertRows()
         
     def remove_spl(self, row: int):
