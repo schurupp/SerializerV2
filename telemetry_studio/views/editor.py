@@ -23,6 +23,7 @@ class FieldTableWidget(QTableWidget):
     fieldSelected = Signal(int) # Row
     fieldMoved = Signal(int, int) # From, To
     fieldDeleted = Signal(int) # Row
+    fieldRenamed = Signal(int, str) # Row, NewName
     
     def __init__(self, parent=None):
         super().__init__(0, 4, parent)
@@ -39,6 +40,12 @@ class FieldTableWidget(QTableWidget):
         
         self.itemClicked.connect(self._on_click)
         self.currentItemChanged.connect(self._on_change)
+        self.itemChanged.connect(self._on_item_changed)
+        
+    def _on_item_changed(self, item):
+        # Handle Rename
+        if item.column() == 0: # Name Column
+             self.fieldRenamed.emit(item.row(), item.text())
         
     def _on_click(self, item):
         self.fieldSelected.emit(item.row())
@@ -49,6 +56,7 @@ class FieldTableWidget(QTableWidget):
 
     def refresh(self, fields: list):
         current_row = self.currentRow()
+        self.blockSignals(True)
         self.setRowCount(0)
         
         for i, f in enumerate(fields):
@@ -96,6 +104,7 @@ class FieldTableWidget(QTableWidget):
             
         if current_row >= 0 and current_row < self.rowCount():
              self.selectRow(current_row)
+        self.blockSignals(False)
 
 class MessageEditorView(QWidget):
     def __init__(self, context: ProjectDefinition, parent=None):
@@ -167,6 +176,7 @@ class MessageEditorView(QWidget):
         self.field_table.fieldSelected.connect(self.on_field_selected)
         self.field_table.fieldMoved.connect(self.move_field)
         self.field_table.fieldDeleted.connect(self.delete_field)
+        self.field_table.fieldRenamed.connect(self.rename_field)
         
         left_layout.addWidget(self.btn_add)
         left_layout.addWidget(self.field_table)
@@ -266,7 +276,8 @@ class MessageEditorView(QWidget):
         
         # Gather all field names for references
         all_names = [f.name for f in self.current_msg.fields]
-        self.property_panel.set_field(field, all_names)
+        # Pass fresh project reference to ensure SPL configs are current
+        self.property_panel.set_field(field, all_names, self.project_context)
         
     def on_field_edited(self):
         # Triggered when PropertyPanel changes something
@@ -314,6 +325,22 @@ class MessageEditorView(QWidget):
              self.item_selected(idx)
         else:
              self.property_panel.setVisible(False)
+
+    def rename_field(self, row, new_name):
+        """Handle field renaming from the table."""
+        if not self.current_msg or row >= len(self.current_msg.fields):
+            return
+        field = self.current_msg.fields[row]
+        if field.name == new_name:
+            return
+        
+        field.name = new_name
+        # Update Panel if this row is selected
+        if self.field_table.currentRow() == row:
+             self.property_panel.set_field(field, [f.name for f in self.current_msg.fields], self.project_context)
+             
+        # Sync Header (if discriminator)
+        self.refresh_header()
 
     def on_disc_changed(self, item):
         if item.column() != 1: return

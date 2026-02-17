@@ -17,6 +17,7 @@ class FieldPropertyPanel(QWidget):
     
     def __init__(self, project: ProjectDefinition, parent=None):
         super().__init__(parent)
+        # Store project reference - will be refreshed in set_field
         self.project = project
         self.current_field: FieldDefinition = None
         self._blocking = False
@@ -80,6 +81,12 @@ class FieldPropertyPanel(QWidget):
         self.enum_selector = QComboBox()
         self.enum_selector.addItems([e.name for e in self.project.enums])
         self.enum_form.addRow("Enum Class", self.enum_selector)
+        
+        # Storage Type for Enum
+        self.enum_storage = QComboBox()
+        self.enum_storage.addItems(["UInt8", "UInt16", "UInt32", "UInt64", "Int8", "Int16", "Int32", "Int64"])
+        self.enum_form.addRow("Storage Type", self.enum_storage)
+        
         self.form_layout.addRow(self.enum_group)
         self.enum_group.hide()
         
@@ -112,13 +119,18 @@ class FieldPropertyPanel(QWidget):
         # Connect Signals
         self.name_edit.textChanged.connect(self._on_edit)
         self.type_combo.currentTextChanged.connect(self._on_type_changed)
-        self.spl_combo.currentTextChanged.connect(self._on_edit) # Simplified signal
+        
+        # Fix: Connect spl_combo model dataChanged signal
+        self.spl_combo.model().dataChanged.connect(self._on_edit)
         
         self.arr_mode.currentTextChanged.connect(self._on_edit)
         self.arr_count.valueChanged.connect(self._on_edit)
         self.arr_ref.currentTextChanged.connect(self._on_edit)
         self.arr_item_type.currentTextChanged.connect(self._on_edit)
+        
+        # Fix: Connect enum selector and storage
         self.enum_selector.currentTextChanged.connect(self._on_edit)
+        self.enum_storage.currentTextChanged.connect(self._on_edit)
         
         self.chk_discriminator.toggled.connect(self._on_edit)
         self.chk_discriminator.toggled.connect(lambda _: self.discriminatorChanged.emit())
@@ -131,16 +143,30 @@ class FieldPropertyPanel(QWidget):
         self.start_field.currentTextChanged.connect(self._on_edit)
         self.end_field.currentTextChanged.connect(self._on_edit)
         
-    def set_field(self, field: FieldDefinition, all_field_names: list):
+    def set_field(self, field: FieldDefinition, all_field_names: list, project: ProjectDefinition = None):
         self._blocking = True
         self.current_field = field
         
+        # Update project reference if provided (ensures we have current SPL configs)
+        if project is not None:
+            self.project = project
+        
         self.name_edit.setText(field.name)
         self.type_combo.setCurrentText(field.field_type)
+        
+        # Refresh Configs - now using current project state
+        self.spl_combo.clear()
+        spl_names = sorted([c.name for c in self.project.spl_configs])
+        self.spl_combo.addItems(spl_names)
+        
         if field.options.get("active_configs"):
             self.spl_combo.setCheckedItems(field.options.get("active_configs"))
         else:
             self.spl_combo.clearChecked()
+            
+        # Refresh Enums
+        self.enum_selector.clear()
+        self.enum_selector.addItems(sorted([e.name for e in self.project.enums]))
             
         # Default Value
         val = field.options.get("default", "")
@@ -167,6 +193,9 @@ class FieldPropertyPanel(QWidget):
             
         if field.field_type == "Enum":
             self.enum_selector.setCurrentText(opts.get("enum_name", ""))
+            # Load storage type (default to UInt32 for compatibility)
+            storage_type = opts.get("storage_type", "UInt32")
+            self.enum_storage.setCurrentText(storage_type)
             
         # Flags
         self.chk_discriminator.setChecked(opts.get("is_discriminator", False))
@@ -210,6 +239,7 @@ class FieldPropertyPanel(QWidget):
         f.field_type = self.type_combo.currentText()
         f.options['active_configs'] = self.spl_combo.checkedItems()
         
+        
         if f.field_type == "Array":
             f.options['mode'] = self.arr_mode.currentText()
             f.options['count'] = self.arr_count.value()
@@ -219,6 +249,7 @@ class FieldPropertyPanel(QWidget):
             
         if f.field_type == "Enum":
             f.options['enum_name'] = self.enum_selector.currentText()
+            f.options['storage_type'] = self.enum_storage.currentText()
             
         f.options['is_discriminator'] = self.chk_discriminator.isChecked()
         f.options['is_checksum'] = self.chk_checksum.isChecked()

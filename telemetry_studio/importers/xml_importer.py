@@ -307,7 +307,9 @@ class XMLImporter:
         if 'default' in common_opts:
             d = common_opts['default']
             if field_def.field_type in ["UInt8", "UInt16", "UInt32", "UInt64", "Int8", "Int16", "Int32", "Int64"]:
-                 try: common_opts['default'] = int(d)
+                 try: 
+                     # Support Hex (0x...) and Decimal
+                     common_opts['default'] = int(d, 0)
                  except: pass
             elif field_def.field_type in ["Float", "Double"]:
                  try: common_opts['default'] = float(d)
